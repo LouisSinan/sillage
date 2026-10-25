@@ -2409,6 +2409,12 @@
     if (little) { log("Little Sillage window ready"); return; }
     purgeNotes();
     await refreshProfiles();
+    // The registry shows this profile under its own name.
+    const own = D.profiles.find(p => p.id === D.self);
+    if (own && registry.profiles.find(p => p.id === D.self)?.name !== own.name) {
+      await Profiles.updateRegistry(reg => { const e = reg.profiles.find(p => p.id === D.self); if (e) e.name = own.name; });
+      await refreshProfiles();
+    }
     if (Profiles.current().isDefault) {
       SillageSync.setRegistryHooks({
         list: () => registry.profiles.filter(p => p.id !== D.self),
