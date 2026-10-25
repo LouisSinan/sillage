@@ -1,6 +1,7 @@
 // Sillage test suite: runs inside the browser window of a headless Firefox on a throwaway profile.
 (async () => {
   const L = sillageLog, S = Sillage._t;
+  const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
   const wait = ms => new Promise(r => setTimeout(r, ms));
   let pass = 0, fail = 0;
   const ok = (cond, name, extra = "") => { cond ? pass++ : fail++; L(`${cond ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
@@ -337,6 +338,56 @@
     ok(!S.deleteProfile(pro.id), "profile in use cannot be deleted");
     await S.deleteWs(ws3, { confirm: false });
     ok(S.deleteProfile(pro.id) && !S.D.profiles.some(p => p.id === pro.id), "unused profile deleted");
+
+    // --- Firefox Sync: two simulated devices merging their states
+    const Sync = S.sync;
+    const clone = o => JSON.parse(JSON.stringify(o));
+    const { Weave } = ChromeUtils.importESModule("resource://services-sync/main.sys.mjs");
+    await until(() => !!Weave.Service.engineManager.get("sillage"), 10000);
+    const engine = Weave.Service.engineManager.get("sillage");
+    ok(!!engine && engine.enabled, "Sillage engine registered with Firefox Sync");
+    const rec = await engine._store.createRecord(Sync._test.STATE_ID, "sillage");
+    ok(rec.state?.v === 1 && Object.keys(rec.state.workspaces).length >= 2, "sync record carries the workspaces");
+
+    // "Linux": the current data. "Mac": a fresh install that joins.
+    const linux = clone(S.D);
+    linux.workspaces[0].pinned.push({ type: "item", id: "syncpin", url: "https://example.com/sync", title: "Sync pin" });
+    linux.workspaces[0].mod = Date.now();
+    const mac = { profiles: [{ id: "default", name: "Personal", userContextId: 0, favorites: [] }],
+      workspaces: [{ id: "macfresh", name: "Personal", icon: "🏠", hue: 250, profile: "default", pinned: [] }], settings: {} };
+    Sync.initStamps(mac);
+    const r1 = Sync.merge(mac, Sync.buildState(linux));
+    ok(r1.changed && mac.workspaces.length === linux.workspaces.length && !mac.workspaces.some(w => w.id === "macfresh"),
+      "joining device takes the remote workspaces and drops its untouched default", mac.workspaces.map(w => w.name).join(","));
+    ok(mac.workspaces[0].pinned.some(i => i.id === "syncpin"), "pinned items arrive on the other device");
+    ok(mac.profiles[0].favorites.length === linux.profiles[0].favorites.length, "favorites arrive on the other device");
+
+    // Edit on the Mac, merge back into Linux.
+    mac.workspaces[0].name = "Renamed on Mac";
+    mac.workspaces[0].board.notes.push({ id: "n1", x: 0, y: 0, text: "from mac", color: "yellow", created: Date.now(), expires: Date.now() + 86400e3 });
+    Sync.stamp(mac);
+    mac.workspaces[0].mod = Date.now() + 1000;
+    const r2 = Sync.merge(linux, Sync.buildState(mac));
+    ok(r2.changed && linux.workspaces[0].name === "Renamed on Mac" && linux.workspaces[0].board.notes.some(n => n.id === "n1"), "remote edits (name, board notes) are applied");
+    // An older remote change must not override a newer local one.
+    const stale = Sync.buildState(mac);
+    stale.workspaces[linux.workspaces[0].id].name = "stale";
+    stale.workspaces[linux.workspaces[0].id].mod = 1;
+    Sync.merge(linux, stale);
+    ok(linux.workspaces[0].name === "Renamed on Mac", "older remote changes are ignored");
+    // Deletion propagates.
+    const gone = linux.workspaces[1].id;
+    Sync.noteDeletion(mac, "workspace", gone);
+    mac.workspaces.splice(mac.workspaces.findIndex(w => w.id === gone), 1);
+    const r3 = Sync.merge(linux, Sync.buildState(mac));
+    ok(r3.removedWorkspaces.includes(gone) && !linux.workspaces.some(w => w.id === gone), "workspace deletions propagate");
+    // A profile created elsewhere gets a local container.
+    const remoteProfile = { v: 1, profiles: { remotep: { name: "Remote", favorites: [], mod: Date.now() } }, workspaces: {} };
+    Sync.merge(linux, remoteProfile);
+    const rp = linux.profiles.find(p => p.id === "remotep");
+    ok(rp && rp.userContextId > 0, "remote profile gets a local Firefox container", "ucid " + rp?.userContextId);
+    try { ContextualIdentityService.remove(rp.userContextId); } catch {}
+    Sync.initStamps(S.D);
 
     // --- interface screenshot
     try {

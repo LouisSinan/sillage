@@ -40,3 +40,5 @@ user_pref("privacy.userContext.newTabContainerOnLeftClick.enabled", false);
 
 // Linux: native file picker through the XDG portal
 user_pref("widget.use-xdg-desktop-portal.file-picker", 1);
+// Sync Sillage data (workspaces, pinned items, boards, profiles) with the Firefox Account
+user_pref("services.sync.engine.sillage", true);

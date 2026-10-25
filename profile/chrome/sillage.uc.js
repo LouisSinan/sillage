@@ -15,6 +15,8 @@
   const IS_MAC = AppConstants.platform === "macosx";
   const accel = e => (IS_MAC ? e.metaKey : e.ctrlKey);
   const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
+  // Firefox Sync engine (lives as long as the application, unlike this window).
+  const SillageSync = ChromeUtils.importESModule("chrome://sillage/content/sillage-sync.sys.mjs");
 
   /* ---------- utilities ---------- */
 
@@ -110,6 +112,7 @@
         d.settings = Object.assign(defaults().settings, d.settings);
         if (!d.workspaces.length) d.workspaces = def.workspaces;
         shared.data = d;
+        shared.persist = () => IOUtils.writeJSON(DATA_PATH, shared.data, { tmpPath: DATA_PATH + ".tmp" });
         try { shared.hist = await IOUtils.readJSON(HIST_PATH); } catch { shared.hist = {}; }
         if (d.legacyProfileId) {
           if (shared.hist.perso) { shared.hist[DEFAULT_PROFILE] = shared.hist.perso; delete shared.hist.perso; }
@@ -123,7 +126,8 @@
 
   function save() {
     clearTimeout(shared.saveTimer);
-    shared.saveTimer = setTimeout(() => IOUtils.writeJSON(DATA_PATH, D, { tmpPath: DATA_PATH + ".tmp" }).catch(e => log("save " + e)), 300);
+    shared.saveTimer = setTimeout(() => shared.persist().catch(e => log("save " + e)), 300);
+    try { SillageSync.dataSaved(D); } catch (e) { log("sync " + e); }
     for (const w of shared.windows) if (w !== window) w.Sillage?.render();
   }
 
@@ -605,6 +609,7 @@
     } catch (e) { log("clear data " + e); }
     D.profiles.splice(D.profiles.indexOf(p), 1);
     delete shared.hist[id];
+    SillageSync.noteDeletion(D, "profile", id);
     save();
     toast(`Profile “${p.name}” deleted`);
     return true;
@@ -635,6 +640,7 @@
     if (activeWs === id) switchWs(D.workspaces.find(x => x.id !== id).id);
     gBrowser.removeTabs(tabs);
     D.workspaces.splice(D.workspaces.indexOf(w), 1);
+    SillageSync.noteDeletion(D, "workspace", id);
     save();
     render();
   }
@@ -2033,6 +2039,29 @@
     } catch (e) { log("update check " + e); }
   }
 
+  /* ---------- Firefox Sync: data arrived from another device ---------- */
+
+  const syncObserver = {
+    observe(subject, topic, data) {
+      if (little) return render();
+      let info = {};
+      try { info = JSON.parse(data); } catch {}
+      // Tabs of workspaces deleted on another device move to the current one.
+      const removed = new Set(info.removedWorkspaces || []);
+      if (removed.has(activeWs) || !wsById(activeWs)) activeWs = D.workspaces[0].id;
+      for (const t of gBrowser.tabs) {
+        if (alive(t) && removed.has(getVal(t, WS_KEY))) setVal(t, WS_KEY, activeWs);
+      }
+      // Profiles may have been created or removed: make sure tabs sit in the right container.
+      for (const t of [...gBrowser.tabs]) {
+        const want = tabProfile(t)?.userContextId;
+        if (alive(t) && want != null && (t.userContextId || 0) !== want && !t.hasAttribute("pending")) rehome(t, want);
+      }
+      applyVisibility();
+      render();
+    },
+  };
+
   /* ---------- startup ---------- */
 
   const containerCheck = new WeakSet();
@@ -2040,7 +2069,12 @@
   async function init() {
     D = await loadData();
     shared.windows.add(window);
-    window.addEventListener("unload", () => shared.windows.delete(window));
+    Services.obs.addObserver(syncObserver, "sillage-sync-applied");
+    window.addEventListener("unload", () => {
+      shared.windows.delete(window);
+      Services.obs.removeObserver(syncObserver, "sillage-sync-applied");
+    });
+    SillageSync.init(shared).then(() => save()).catch(e => log("sync init " + e));
     activeWs = wsById(D.lastWs) ? D.lastWs : D.workspaces[0].id;
     sidebarVisible = D.settings.sidebarVisible;
 
@@ -2138,7 +2172,7 @@
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
-      openLittle, moveToMain, enterLittle,
+      openLittle, moveToMain, enterLittle, sync: SillageSync,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);

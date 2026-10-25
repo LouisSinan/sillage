@@ -28,6 +28,8 @@ Firefox.
   and a shrinking lifetime bar, and can be renewed. Open it from the sidebar or the palette.
 - **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
   "Open in…" moves the tab into the workspace of your choice. Can be turned off from the palette.
+- **Sync** through your Firefox Account: workspaces, pinned items, folders, boards, profiles and favorites
+  follow you across devices, end-to-end encrypted like the rest of Firefox Sync.
 - **Pinned tabs** that keep their home URL; closing a pinned tab unloads it instead of removing it.
 - **Auto-archiving** of today tabs that have not been viewed for a while (12 hours to 7 days, or never).
 - **Drag and drop** to reorder, pin, file into folders or move tabs to another workspace.
@@ -117,12 +119,25 @@ assets/           icon
 The interface reloads with Sillage: edit `profile/chrome/`, then restart it. Logs are written to
 `sillage.log` in the profile directory.
 
+## Sync
+
+Sign in to your Firefox Account in Sillage (palette → Settings → Sync) on each device. Sillage registers its
+own engine with Firefox Sync, so its data is encrypted with your account keys and stored in a separate
+collection that regular Firefox clients ignore.
+
+- Synced: workspaces (name, icon, color, profile, pinned items and folders, board notes), profiles (name,
+  favorites), and deletions.
+- Not synced: open tabs (Firefox already shares them), sidebar width and visibility, board pan and zoom.
+  Each profile's Firefox container is created locally when the profile first arrives on a device.
+- Conflicts are resolved per workspace and per profile: the most recent change wins. When a fresh install
+  joins, its untouched default workspace is replaced by your synced workspaces.
+
 ## Data
 
 Workspaces, pinned items, favorites and boards are stored in `sillage.json`, and palette history in
-`sillage-history.json`, both in the profile directory. Everything stays on your machine; Sillage
-makes no network requests of its own beyond search suggestions from your default search engine
-(when enabled in Firefox) and, on macOS, a daily check for new Firefox releases.
+`sillage-history.json`, both in the profile directory. Sillage makes no network
+requests of its own beyond search suggestions from your default search engine (when enabled in Firefox),
+Firefox Sync when you are signed in, and, on macOS, a daily check for new Firefox releases.
 
 ## Acknowledgements
 
