@@ -276,6 +276,10 @@
 .sl-ws-dot:hover { opacity: .9; filter: none; background: var(--sl-hover); }
 .sl-ws-dot.active { opacity: 1; filter: none; background: var(--sl-hover); }
 .sl-ws-dot.sl-drop-into { transform: scale(1.15); }
+.sl-ws-dot { position: relative; }
+.sl-ws-dot.sl-drop-before::before, .sl-ws-dot.sl-drop-after::after { top: 5px; bottom: 5px; width: 2px; height: auto; left: auto; right: auto; }
+.sl-ws-dot.sl-drop-before::before { left: -2px; }
+.sl-ws-dot.sl-drop-after::after { right: -2px; }
 
 #sl-resizer { position: absolute; top: 0; right: -6px; bottom: 0; width: 8px; cursor: ew-resize; z-index: 3; }
 :root.sl-hidden #sl-resizer { display: none; }

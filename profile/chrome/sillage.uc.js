@@ -544,6 +544,16 @@
     render();
   }
 
+  /* Reorders workspaces (also the Ctrl+1…9 order; synced). */
+  function moveWorkspace(id, index) {
+    const i = D.workspaces.findIndex(w => w.id === id);
+    if (i < 0) return;
+    const [w] = D.workspaces.splice(i, 1);
+    D.workspaces.splice(Math.min(i < index ? index - 1 : index, D.workspaces.length), 0, w);
+    save();
+    render();
+  }
+
   function moveFolder(id, index) {
     const r = findFolder(id);
     if (!r) return;
@@ -804,7 +814,7 @@
     if (boardOpen) renderBoard();
 
     wsBar.replaceChildren(...D.workspaces.map((w, i) => h("button", {
-      class: `sl-ws-dot${w.id === ws.id ? " active" : ""}`, "data-ws": w.id,
+      class: `sl-ws-dot${w.id === ws.id ? " active" : ""}`, "data-ws": w.id, "data-index": i, draggable: "true",
       title: `${w.name}${showProfile ? " · " + profById(w.profile).name : ""} (Ctrl+${i + 1})`, text: w.icon,
     })));
 
@@ -948,6 +958,12 @@
   function computeDrop(e) {
     const isFolder = dragging.kind === "folder";
     const dot = e.target.closest(".sl-ws-dot");
+    // Reordering workspaces: drop on the left or right half of another workspace.
+    if (dragging.kind === "ws") {
+      if (!dot) return null;
+      const r = dot.getBoundingClientRect(), before = e.clientX < r.left + r.width / 2;
+      return { el: dot, mark: before ? "sl-drop-before" : "sl-drop-after", dest: { index: +dot.dataset.index + (before ? 0 : 1) } };
+    }
     if (dot) return isFolder ? null : { el: dot, mark: "sl-drop-into", dest: { list: "today", wsId: dot.dataset.ws } };
 
     const fh = e.target.closest(".sl-folder-head");
@@ -983,6 +999,14 @@
       if (e.target.closest("#navigator-toolbox")) return;
       const fh = e.target.closest(".sl-folder-head");
       const row = rowTarget(e);
+      const wsDot = e.target.closest(".sl-ws-dot");
+      if (wsDot) {
+        dragging = { kind: "ws", id: wsDot.dataset.ws };
+        e.dataTransfer.setData("application/x-sillage", "1");
+        e.dataTransfer.effectAllowed = "move";
+        wsDot.classList.add("sl-dragging");
+        return;
+      }
       if (fh) dragging = { kind: "folder", id: fh.dataset.folderId };
       else if (row) dragging = { kind: row.dataset.tab ? "tab" : "item", tab: rowTab(row), item: row.dataset.item };
       else return;
@@ -1008,7 +1032,8 @@
       const dest = { wsId: drop.dest.wsId || activeWs, ...drop.dest };
       const dr = dragging;
       endDrag();
-      if (dr.kind === "folder") moveFolder(dr.id, dest.index ?? Infinity);
+      if (dr.kind === "ws") moveWorkspace(dr.id, dest.index);
+      else if (dr.kind === "folder") moveFolder(dr.id, dest.index ?? Infinity);
       else if (dr.tab) moveTab(dr.tab, dest);
       else moveItem(dr.item, dest);
     });
@@ -2219,7 +2244,7 @@
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
-      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank,
+      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);

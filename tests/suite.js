@@ -293,6 +293,20 @@
     src2.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: dt }));
     ok(moved && S.tabWs(moved) === dot.dataset.ws, "dragging a tab onto a workspace moves it there");
 
+    // --- reorder workspaces by dragging their icons
+    S.renderNow();
+    const orderBefore = S.D.workspaces.map(w => w.id);
+    const dots = [...document.querySelectorAll(".sl-ws-dot")];
+    const dt2 = new DataTransfer();
+    const firstRect = dots[0].getBoundingClientRect();
+    dots[1].dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt2 }));
+    dots[0].dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt2, clientX: firstRect.left + 2, clientY: firstRect.top + 5 }));
+    dots[0].dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt2, clientX: firstRect.left + 2, clientY: firstRect.top + 5 }));
+    dots[1].dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: dt2 }));
+    ok(S.D.workspaces[0].id === orderBefore[1] && S.D.workspaces[1].id === orderBefore[0], "dragging a workspace icon reorders workspaces");
+    S.moveWorkspace(orderBefore[0], 0);
+    ok(S.D.workspaces[0].id === orderBefore[0], "workspace order restored");
+
     // --- palette: workspace commands
     await S.query("work");
     ok(S.palResults[0]?.kind === "cmd" && S.palResults[0].cmd.startsWith("ws:"), "palette: go to workspace");
