@@ -9,7 +9,7 @@
   const doc = document;
   const log = window.sillageLog || (() => {});
   const shared = window.sillageShared;
-  const WS_KEY = "sillage-ws", ITEM_KEY = "sillage-item";
+  const WS_KEY = "sillage-ws", ITEM_KEY = "sillage-item", BLANK_KEY = "sillage-blank";
   const DATA_PATH = PathUtils.join(PathUtils.profileDir, "sillage.json");
   const HIST_PATH = PathUtils.join(PathUtils.profileDir, "sillage-history.json");
   const IS_MAC = AppConstants.platform === "macosx";
@@ -216,6 +216,31 @@
     return id;
   }
 
+  /* Placeholder tab kept behind the board when a workspace has nothing open (Firefox always needs a
+     selected tab). It is never listed; the board is shown instead. The mark goes away once a page loads. */
+  const EMPTY_URLS = new Set(["about:blank", "about:newtab", "about:home"]);
+  function isBlank(t) {
+    return alive(t) && getVal(t, BLANK_KEY) === "1" && EMPTY_URLS.has(tabUrl(t));
+  }
+  /* Firefox's own new tab page (opened e.g. after closing the last tab of the window) is a placeholder too.
+     about:blank only counts at startup: a freshly opened tab is about:blank until its page starts loading. */
+  function adoptEmptyTab(t, { startup = false } = {}) {
+    const url = tabUrl(t);
+    if (!alive(t) || getVal(t, BLANK_KEY) || t.hasAttribute("pending")) return false;
+    if (!(url === "about:newtab" || url === "about:home" || (startup && url === "about:blank"))) return false;
+    if (t.linkedBrowser?.canGoBack) return false;
+    setVal(t, BLANK_KEY, "1");
+    return true;
+  }
+  function placeholder(wsId) {
+    const existing = gBrowser.tabs.find(t => isBlank(t) && tabWs(t) === wsId);
+    if (existing) return existing;
+    const t = addTab("about:blank", profOf(wsId).userContextId);
+    setVal(t, WS_KEY, wsId);
+    setVal(t, BLANK_KEY, "1");
+    return t;
+  }
+
   function todayTabs(wsId) {
     return gBrowser.tabs.filter(t => alive(t) && !tabItemId(t) && tabWs(t) === wsId);
   }
@@ -265,14 +290,9 @@
       if (alive(remembered) && inView(remembered, id)) target = remembered;
     }
     if (!target) {
-      const mine = gBrowser.tabs.filter(t => alive(t) && inView(t, id)).sort((a, b) => b.lastAccessed - a.lastAccessed);
-      target = mine[0] || null;
-    }
-    let created = false;
-    if (!target) {
-      target = addTab("about:blank", profOf(id).userContextId);
-      setVal(target, WS_KEY, id);
-      created = true;
+      // The workspace's own tabs (favorites only if they were the last thing open there).
+      const mine = gBrowser.tabs.filter(t => alive(t) && tabWs(t) === id && !isBlank(t)).sort((a, b) => b.lastAccessed - a.lastAccessed);
+      target = mine[0] || placeholder(id);
     }
     switching = true;
     try {
@@ -283,8 +303,7 @@
     if (animate && from && from !== id) slide(D.workspaces.findIndex(w => w.id === id) > D.workspaces.findIndex(w => w.id === from));
     save();
     render();
-    if (boardWasOpen || (created && !cycling && curWs().board?.notes?.length)) openBoard();
-    else if (created && !cycling) openPalette("current");
+    if (boardWasOpen || isBlank(target)) openBoard();
   }
 
   /* Previous / next workspace (no wrap-around). */
@@ -295,6 +314,8 @@
   }
 
   function selectTab(t) {
+    // Clicking the tab that is already shown under the board goes back to it.
+    if (boardOpen && t === gBrowser.selectedTab && !isBlank(t)) closeBoard();
     if (inView(t)) {
       if (t.hidden) gBrowser.showTab(t);
       gBrowser.selectedTab = t;
@@ -331,7 +352,7 @@
 
   function cycleStep(dir) {
     if (!cycling) {
-      cycleList = mru.filter(alive);
+      cycleList = mru.filter(t => alive(t) && !isBlank(t));
       if (cycleList[0] !== gBrowser.selectedTab) cycleList.unshift(gBrowser.selectedTab);
       if (cycleList.length < 2) return;
       cycling = true;
@@ -412,7 +433,7 @@
       if (n.type === "folder") { if (n.open) for (const it of n.children) out.push({ item: it }); }
       else out.push({ item: n });
     }
-    for (const t of todayTabs(ws.id)) out.push({ tab: t });
+    for (const t of todayTabs(ws.id)) if (!isBlank(t)) out.push({ tab: t });
     return out;
   }
 
@@ -537,7 +558,7 @@
     if (!t.selected) return;
     const next = gBrowser.tabs.filter(x => alive(x) && x !== t && inView(x)).sort((a, b) => b.lastAccessed - a.lastAccessed)[0];
     if (next) gBrowser.selectedTab = next;
-    else { const n = addTab("about:blank", curProf().userContextId); setVal(n, WS_KEY, activeWs); gBrowser.selectedTab = n; }
+    else gBrowser.selectedTab = placeholder(activeWs);
   }
 
   function togglePin(t) {
@@ -647,7 +668,7 @@
 
   /* ---------- user interface ---------- */
 
-  let side, scroll, favBox, pinBox, todayBox, wsBar, wsTitle, peekZone, toastEl, boardRow;
+  let side, scroll, favBox, pinBox, todayBox, wsBar, wsTitle, peekZone, toastEl, orb;
 
   function buildUi() {
     doc.documentElement.classList.add("sillage");
@@ -656,14 +677,14 @@
     favBox = h("div", { id: "sl-favorites", class: "sl-zone", "data-list": "favorites" });
     wsTitle = h("div", { id: "sl-ws-title" });
     pinBox = h("div", { id: "sl-pinned", class: "sl-zone", "data-list": "pinned" });
-    boardRow = h("div", { id: "sl-board-row", class: "sl-row", title: "Sticky notes for this workspace", onclick: toggleBoard },
-      icon("board"), h("span", { class: "sl-title", text: "Board" }), h("span", { class: "sl-board-count" }));
+    orb = h("button", { id: "sl-orb", title: "Board — sticky notes for this workspace", onclick: toggleBoard },
+      h("img", { src: "chrome://sillage/content/logo-mark.svg", alt: "" }), h("span", { class: "sl-orb-count" }));
     todayBox = h("div", { id: "sl-today", class: "sl-zone", "data-list": "today" });
     const newTabRow = h("div", { id: "sl-newtab", class: "sl-row", onclick: () => openPalette("new") },
       icon("plus"), h("span", { class: "sl-title", text: "New Tab" }), h("kbd", { text: IS_MAC ? "⌘T" : "Ctrl T" }));
-    const divider = h("div", { class: "sl-divider" }, h("span"),
-      h("button", { text: "Clear", title: "Close today tabs", onclick: clearToday }));
-    scroll = h("div", { id: "sl-scroll" }, favBox, wsTitle, boardRow, pinBox, divider, newTabRow, todayBox);
+    const divider = h("div", { class: "sl-divider" }, h("span", { class: "sl-line" }), orb, h("span", { class: "sl-line" }),
+      h("button", { class: "sl-clear", text: "Clear", title: "Close today tabs", onclick: clearToday }));
+    scroll = h("div", { id: "sl-scroll" }, favBox, wsTitle, pinBox, divider, newTabRow, todayBox);
 
     wsBar = h("div", { id: "sl-ws-bar" });
     const bottom = h("div", { id: "sl-bottom" },
@@ -775,11 +796,11 @@
         n.open && h("div", { class: "sl-folder-body" }, n.children.map((it, k) => rowForItem(it, "pinned", k, n.id))));
     }));
 
-    todayBox.replaceChildren(...todayTabs(ws.id).map((t, i) => rowForTab(t, "today", i)));
+    todayBox.replaceChildren(...todayTabs(ws.id).filter(t => !isBlank(t)).map((t, i) => rowForTab(t, "today", i)));
 
     const notes = ws.board?.notes?.filter(n => n.expires > Date.now()).length || 0;
-    boardRow.classList.toggle("active", boardOpen);
-    boardRow.querySelector(".sl-board-count").textContent = notes || "";
+    orb.classList.toggle("active", boardOpen);
+    orb.querySelector(".sl-orb-count").textContent = notes || "";
     if (boardOpen) renderBoard();
 
     wsBar.replaceChildren(...D.workspaces.map((w, i) => h("button", {
@@ -1709,7 +1730,9 @@
     const title = h("span", { class: "sl-board-title" });
     const zoom = h("span", { class: "sl-board-zoom" });
     boardWrap = h("div", { id: "sl-board-wrap", hidden: true },
-      h("div", { id: "sl-board-bar" }, title,
+      h("div", { id: "sl-board-bar" },
+        h("span", { class: "sl-orb-mini" }, h("img", { src: "chrome://sillage/content/logo-mark.svg", alt: "" })),
+        title,
         h("span", { class: "sl-board-hint", text: "Double-click to add a note · drag to pan · Ctrl+scroll to zoom" }),
         zoom,
         h("button", { class: "sl-board-btn", onclick: () => addNote() }, icon("plus"), "Note"),
@@ -1859,7 +1882,8 @@
     const ws = curWs(), b = board(ws);
     const box = $("#tabbrowser-tabbox").getBoundingClientRect();
     for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) boardWrap.style.setProperty(`--bd-${k}`, v + "px");
-    boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name} — Board`;
+    boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name}`;
+    boardWrap.classList.toggle("blank", isBlank(gBrowser.selectedTab));
     const focused = doc.activeElement?.closest?.(".sl-note")?.dataset.note;
     boardWorld.replaceChildren(...b.notes.map(noteEl));
     if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
@@ -1894,6 +1918,13 @@
 
   function closeBoard() {
     if (!boardOpen) return;
+    // No empty pages: on a blank tab, closing the board goes back to the last real tab instead.
+    if (isBlank(gBrowser.selectedTab)) {
+      const back = mru.find(t => alive(t) && !isBlank(t) && inView(t));
+      if (back) selectTab(back);
+      else boardWrap.classList.add("sl-nudge"), setTimeout(() => boardWrap.classList.remove("sl-nudge"), 400);
+      return;
+    }
     boardOpen = false;
     boardWrap.hidden = true;
     clearInterval(boardTimer);
@@ -2095,7 +2126,9 @@
     tc.addEventListener("TabSelect", () => {
       const t = gBrowser.selectedTab;
       if (little) return render();
-      if (boardOpen && !switching) closeBoard();
+      adoptEmptyTab(t);
+      if (isBlank(t)) openBoard();
+      else if (boardOpen && !switching) closeBoard();
       if (!switching && !inView(t)) {
         const w = tabWs(t);
         if (wsById(w)) switchWs(w, { tab: t });
@@ -2110,8 +2143,11 @@
       // Little windows close with their last tab.
       if (little) { if (!gBrowser.tabs.some(x => x !== t && alive(x))) setTimeout(() => window.close(), 0); return; }
       if (!t.selected) return;
-      const others = gBrowser.tabs.some(x => x !== t && alive(x) && inView(x));
-      if (!others) setVal(addTab("about:blank", curProf().userContextId), WS_KEY, activeWs);
+      // Last page of the workspace closed: land on the board (favorites stay where they are).
+      const own = gBrowser.tabs.some(x => x !== t && alive(x) && tabWs(x) === activeWs && !isBlank(x));
+      // (Last tab of the window: Firefox opens its own new tab, adopted as the placeholder.)
+      const lastInWindow = !gBrowser.tabs.some(x => x !== t && alive(x));
+      if (!own && !isBlank(t) && !lastInWindow) gBrowser.setSuccessor(t, placeholder(activeWs));
     });
     for (const ev of ["TabClose", "TabAttrModified", "TabMove", "TabShow", "TabHide", "TabPinned", "TabUnpinned"]) tc.addEventListener(ev, render);
     tc.addEventListener("SSTabRestoring", () => { if (!little) applyVisibility(); render(); });
@@ -2122,6 +2158,10 @@
         if (t) {
           const url = location?.spec || "";
           recordVisit(t, url);
+          if (!EMPTY_URLS.has(url) && getVal(t, BLANK_KEY)) setVal(t, BLANK_KEY, "");
+          else if (EMPTY_URLS.has(url) && adoptEmptyTab(t) && t.selected) openBoard();
+          // A blank tab got a page (palette, link…): leave the board.
+          if (boardOpen && t.selected && !isBlank(t) && url !== "about:blank") closeBoard();
           // Link opened from outside in the wrong container: reopen it in the workspace's container.
           if (containerCheck.has(t) && /^https?:/.test(url)) {
             containerCheck.delete(t);
@@ -2151,7 +2191,10 @@
     mru = gBrowser.tabs.filter(alive).sort((a, b) => b.lastAccessed - a.lastAccessed);
     archive();
     setInterval(archive, 3600e3);
+    // An empty start page (no history) becomes the placeholder: show the board instead.
+    adoptEmptyTab(gBrowser.selectedTab, { startup: true });
     renderNow();
+    if (isBlank(gBrowser.selectedTab)) openBoard();
     checkFirefoxUpdate();
     log("Sillage ready");
     const dbg = PathUtils.join(PathUtils.profileDir, "chrome", "debug.js");
@@ -2172,7 +2215,7 @@
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
-      openLittle, moveToMain, enterLittle, sync: SillageSync,
+      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);

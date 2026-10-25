@@ -191,6 +191,35 @@
     ok(S.activeWs === ws2 && S.tabWs(sel()) !== ws1, "closing the last tab stays in the workspace", S.tabWs(sel()));
     S.switchWs(ws1);
 
+    // --- no empty pages: the board replaces them
+    S.saveWs({ id: null, name: "Empty", icon: "🌿", hue: 90, profile: "default" });
+    const wsEmpty = S.activeWs;
+    await wait(200);
+    ok(S.isBlank(sel()) && S.boardOpen, "empty workspace shows the board, not a blank page");
+    S.renderNow();
+    ok(![...document.querySelectorAll("#sl-today .sl-tab")].some(r => r.title.includes("about:blank")), "the blank placeholder tab is not listed");
+    S.closeBoard();
+    ok(!S.isBlank(sel()) && !S.boardOpen, "closing the board on an empty workspace goes back to the last tab", S.tabWs(sel()));
+    await S.deleteWs(wsEmpty, { confirm: false });
+    S.switchWs(ws1);
+    // Closing the last page of a workspace lands on the board.
+    const lone = S.newTab("https://example.com/?lone");
+    S.saveWs({ id: null, name: "Lone", icon: "⭐", hue: 200, profile: "default" });
+    const wsLone = S.activeWs;
+    S.moveTab(lone, { list: "today", wsId: wsLone });
+    S.selectTab(lone);
+    gBrowser.removeTab(lone, { animate: false });
+    await wait(300);
+    ok(S.activeWs === wsLone && S.isBlank(sel()) && S.boardOpen, "closing the last page of a workspace shows its board");
+    await S.deleteWs(wsLone, { confirm: false });
+    S.switchWs(ws1);
+    S.selectTab(S.mru.find(t => !S.isBlank(t) && S.inView(t)));
+    ok(!S.boardOpen, "board closed on a real page");
+    document.getElementById("sl-orb").click();
+    ok(S.boardOpen, "clicking the orb opens the board");
+    document.getElementById("sl-orb").click();
+    ok(!S.boardOpen, "clicking it again closes the board");
+
     // --- auto-archiving
     const old = S.newTab("https://example.com/?old", { background: true });
     Object.defineProperty(old, "lastAccessed", { value: Date.now() - 200 * 3600e3 });
@@ -299,7 +328,9 @@
     old2.expires = Date.now() - 1000;
     S.purgeNotes();
     ok(!S.board().notes.includes(old2) && S.board().notes.includes(note), "expired notes disappear");
-    ok(document.getElementById("sl-board-row").querySelector(".sl-board-count").textContent === "1" || true, "board row shows the note count");
+    S.renderNow();
+    const orb = document.getElementById("sl-orb");
+    ok(!!orb && orb.closest(".sl-divider") && orb.querySelector(".sl-orb-count").textContent === "1", "orb sits on the divider and shows the note count");
     S.closeBoard();
     ok(!S.boardOpen && document.getElementById("sl-board-wrap").hidden, "board closes");
 

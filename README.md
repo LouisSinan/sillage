@@ -25,7 +25,9 @@ Firefox.
 - **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling with page
   thumbnails; the tab opens when the keys are released.
 - **Board**: each workspace has an infinite canvas of sticky notes. Notes last 7 days, with a countdown
-  and a shrinking lifetime bar, and can be renewed. Open it from the sidebar or the palette.
+  and a shrinking lifetime bar, and can be renewed. Open it with the Sillage orb in the middle of the
+  sidebar divider, or from the palette. There are no empty pages: when a workspace has nothing open,
+  its board is shown instead.
 - **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
   "Open in…" moves the tab into the workspace of your choice. Can be turned off from the palette.
 - **Sync** through your Firefox Account: workspaces, pinned items, folders, boards, profiles and favorites

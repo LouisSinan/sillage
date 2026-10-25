@@ -218,11 +218,48 @@
 
 #sl-pinned:empty::before { content: "Drag a tab here to pin it"; display: block; padding: 8px 10px; color: var(--sl-fg-faint); font-size: 12px; }
 
-.sl-divider { display: flex; align-items: center; gap: 8px; margin: 8px 4px 6px; height: 18px; }
-.sl-divider > span { flex: 1; height: 1px; background: var(--sl-line); }
-.sl-divider > button { font: inherit; font-size: 11.5px; color: var(--sl-fg-faint); padding: 2px 6px; border-radius: 5px; border: none; background: none; opacity: 0; appearance: none; margin: 0; }
-#sl-sidebar:hover .sl-divider > button { opacity: 1; }
-.sl-divider > button:hover { background: var(--sl-hover); color: var(--sl-fg); }
+/* Divider between pinned items and today tabs, with the Sillage orb (opens the board) in the middle. */
+.sl-divider { position: relative; display: flex; align-items: center; margin: 10px 4px 8px; height: 34px; }
+.sl-divider > .sl-line { flex: 1; height: 1px; background: var(--sl-line); }
+.sl-clear {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  font: inherit; font-size: 11.5px; color: var(--sl-fg-faint); padding: 2px 7px; margin: 0; border-radius: 6px;
+  border: none; background: var(--sl-bg2); opacity: 0; appearance: none; transition: opacity .15s;
+}
+#sl-sidebar:hover .sl-clear { opacity: 1; }
+.sl-clear:hover { background: var(--sl-hover); color: var(--sl-fg); }
+
+/* Candy orb: glossy gradient in the workspace color, soft glow, springy hover. */
+#sl-orb {
+  position: relative; flex: none; width: 32px; height: 32px; margin: 0 10px; padding: 0; border: none; border-radius: 50%;
+  display: grid; place-items: center; appearance: none; cursor: pointer;
+  background:
+    radial-gradient(circle at 30% 24%, hsl(0 0% 100% / .85) 0 12%, hsl(0 0% 100% / 0) 42%),
+    radial-gradient(circle at 70% 85%, hsl(calc(var(--sl-h) + 70) 95% 75% / .7), transparent 55%),
+    linear-gradient(150deg, hsl(calc(var(--sl-h) + 5) 92% 70%), hsl(calc(var(--sl-h) + 55) 88% 62%));
+  box-shadow:
+    0 0 0 2px hsl(0 0% 100% / .6),
+    0 4px 12px hsl(calc(var(--sl-h) + 30) 85% 50% / .45),
+    inset 0 -3px 6px hsl(var(--sl-h) 70% 30% / .3),
+    inset 0 2px 2px hsl(0 0% 100% / .5);
+  transition: transform .35s cubic-bezier(.34, 1.56, .64, 1), box-shadow .2s;
+}
+#sl-orb img { width: 18px; height: 18px; pointer-events: none; filter: drop-shadow(0 1px 1px hsl(var(--sl-h) 60% 25% / .45)); }
+#sl-orb:hover { transform: scale(1.15) rotate(-8deg); }
+#sl-orb:active { transform: scale(.9); transition-duration: .1s; }
+#sl-orb.active {
+  box-shadow:
+    0 0 0 2px hsl(0 0% 100% / .95),
+    0 0 0 5px hsl(calc(var(--sl-h) + 30) 90% 65% / .55),
+    0 4px 14px hsl(calc(var(--sl-h) + 30) 85% 50% / .5),
+    inset 0 -3px 6px hsl(var(--sl-h) 70% 30% / .3);
+}
+.sl-orb-count {
+  position: absolute; top: -5px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: 8px; background: white; color: hsl(var(--sl-h) 60% 40%);
+  font-size: 10px; font-weight: 700; box-shadow: 0 1px 3px hsl(0 0% 0% / .25);
+}
+.sl-orb-count:empty { display: none; }
 
 #sl-newtab { color: var(--sl-fg-dim); }
 #sl-newtab kbd { margin-left: auto; opacity: 0; }
@@ -355,9 +392,6 @@
 #sl-wsf-profile { margin: 0; min-height: 32px; }
 
 /* ---------- Board: sticky notes on an infinite canvas ---------- */
-#sl-board-row .sl-icon { color: var(--sl-fg-dim); }
-#sl-board-row.active { background: var(--sl-active); box-shadow: var(--sl-shadow); }
-.sl-board-count { margin-left: auto; padding-right: 6px; color: var(--sl-fg-faint); font-size: 11.5px; }
 
 #sl-board-wrap {
   position: fixed; left: var(--bd-x); top: var(--bd-y); width: var(--bd-w); height: var(--bd-h); z-index: 150;
@@ -371,6 +405,16 @@
   border-bottom: 1px solid hsl(var(--sl-h) 20% 50% / .15);
 }
 .sl-board-title { font-weight: 600; }
+.sl-orb-mini {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background:
+    radial-gradient(circle at 30% 24%, hsl(0 0% 100% / .85) 0 12%, hsl(0 0% 100% / 0) 42%),
+    linear-gradient(150deg, hsl(calc(var(--sl-h) + 5) 92% 70%), hsl(calc(var(--sl-h) + 55) 88% 62%));
+  box-shadow: 0 2px 6px hsl(calc(var(--sl-h) + 30) 85% 50% / .4), inset 0 -2px 4px hsl(var(--sl-h) 70% 30% / .3);
+}
+.sl-orb-mini img { width: 13px; height: 13px; }
+#sl-board-wrap.sl-nudge { animation: sl-nudge .35s; }
+@keyframes sl-nudge { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 .sl-board-hint { flex: 1; color: hsl(var(--sl-h) 10% 50%); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sl-board-zoom { color: hsl(var(--sl-h) 10% 50%); font-size: 12px; min-width: 40px; text-align: right; }
 .sl-board-btn {
@@ -383,9 +427,13 @@
   background-image: radial-gradient(hsl(var(--sl-h) 15% 50% / .28) 1px, transparent 1.2px);
 }
 #sl-board-view.panning { cursor: grabbing; }
-#sl-board-wrap.empty #sl-board-view::after {
+#sl-board-wrap.empty #sl-board-view::after,
+#sl-board-wrap.blank.empty #sl-board-view::after {
   content: "Double-click anywhere to add a sticky note. Notes last 7 days."; position: absolute; inset: 0;
   display: grid; place-items: center; color: hsl(var(--sl-h) 10% 50%); font-size: 14px; pointer-events: none;
+}
+#sl-board-wrap.blank.empty #sl-board-view::after {
+  content: "Nothing open here. Press Ctrl+T to go somewhere, or double-click to add a sticky note.";
 }
 #sl-board-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 
