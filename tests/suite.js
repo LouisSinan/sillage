@@ -217,6 +217,18 @@
     const after = [...navTarget.children].map(c => c.id);
     ok(!overflowed.length && before.every(id => after.includes(id)), "toolbar items stay in the sidebar (no overflow)", "overflowed: " + overflowed.join(","));
 
+    // --- pinned extension icons never overlap the extensions menu button
+    const fakeExt = document.createXULElement("toolbarbutton");
+    fakeExt.id = "test-ext-browser-action";
+    fakeExt.className = "toolbarbutton-1 webextension-browser-action";
+    fakeExt.setAttribute("label", "Test");
+    document.getElementById("nav-bar-customization-target").append(fakeExt);
+    await wait(200);
+    const er = fakeExt.getBoundingClientRect(), ur = document.getElementById("unified-extensions-button").getBoundingClientRect();
+    ok(er.width > 0 && (er.right <= ur.left + 0.5 || er.left >= ur.right - 0.5) && Math.abs(er.top - ur.top) < 2,
+      "pinned extension sits next to the extensions button, not under it", `ext ${Math.round(er.left)}-${Math.round(er.right)} menu ${Math.round(ur.left)}-${Math.round(ur.right)}`);
+    fakeExt.remove();
+
     // --- mouse interactions (simulated events)
     S.runCommand("toggle-sidebar");
     document.getElementById("sl-peek").dispatchEvent(new MouseEvent("mouseenter"));

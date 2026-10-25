@@ -148,13 +148,16 @@
   padding: 0 !important;
 }
 :root.sillage #nav-bar toolbarbutton { --toolbarbutton-outer-padding: 1px; }
-/* Bottom row: pinned extensions, downloads, account, extensions menu. */
+/* Bottom row: account and downloads on the left; pinned extensions, then the extensions menu, on the right.
+   The extensions menu must stay last: its negative end margin (reaching into the space kept for the
+   top-right menu) would otherwise pull the following icons on top of it. */
+:root.sillage #downloads-button,
+:root.sillage #fxa-toolbar-menu-button { order: 101; }
+:root.sillage #fxa-toolbar-menu-button { margin-inline-end: auto !important; }
 :root.sillage #nav-bar-customization-target > .webextension-browser-action,
 :root.sillage #nav-bar-customization-target > toolbaritem[id$="-browser-action"],
-:root.sillage #downloads-button,
-:root.sillage #fxa-toolbar-menu-button,
-:root.sillage #unified-extensions-button { order: 101; }
-:root.sillage #unified-extensions-button { margin-inline-start: auto !important; margin-inline-end: -68px !important; }
+:root.sillage #nav-bar-customization-target > toolbarbutton[id$="-browser-action"] { order: 102; }
+:root.sillage #unified-extensions-button { order: 103; margin-inline-end: -68px !important; }
 
 #sl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: none; }
 #sl-scroll.sl-slide-l { animation: sl-slide-l .22s ease-out; }
