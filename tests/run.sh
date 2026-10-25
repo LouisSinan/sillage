@@ -6,7 +6,9 @@ source "$(dirname "$0")/../scripts/common.sh"
 [ -x "$FF_BIN" ] || { echo "Firefox not found: run \`make install\` first." >&2; exit 1; }
 loader_up_to_date || install_loader
 
-PROF="$(mktemp -d)"
+# The profile lives in its own temporary "home": Sillage writes its profile registry next to it.
+HOME_DIR="$(mktemp -d)"
+PROF="$HOME_DIR/profile"
 mkdir -p "$PROF/chrome"
 for f in "$ROOT"/profile/chrome/*; do ln -s "$f" "$PROF/chrome/"; done
 ln -s "${SILLAGE_TEST:-$ROOT/tests/suite.js}" "$PROF/chrome/debug.js"
@@ -26,5 +28,5 @@ cat "$PROF/sillage.log"
 for png in "$PROF"/*.png; do [ -f "$png" ] && cp "$png" "${1:-/tmp}/"; done
 [ -f "$PROF/capture.png" ] && cp "$PROF/capture.png" "${1:-/tmp}/sillage-capture.png"
 grep -q "DONE: .* 0 failed" "$PROF/sillage.log"; status=$?
-rm -rf "$PROF"
+rm -rf "$HOME_DIR"
 exit $status

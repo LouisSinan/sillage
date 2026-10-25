@@ -18,8 +18,9 @@ Firefox.
   <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it.
 - **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd>,
   <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar, or the palette.
-- **Profiles.** Each workspace is assigned a profile backed by a Firefox container: separate cookies and
-  sessions (for example two Google accounts side by side), plus separate palette history and favorites.
+- **Profiles.** Each profile is a real Firefox profile with its own extensions, passwords, history, sign-ins
+  and Firefox Account, running in its own window. The sidebar lists the workspaces of every profile;
+  choosing one of another profile switches to that profile's window.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
   suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match.
 - **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling with page
@@ -121,16 +122,32 @@ assets/           icon
 The interface reloads with Sillage: edit `profile/chrome/`, then restart it. Logs are written to
 `sillage.log` in the profile directory.
 
+## Profiles
+
+Create one from the palette (**New profile**) or from the workspace editor. Each profile lives in its own
+Firefox profile directory next to the default one (`profiles/<id>/`) and runs as its own Firefox instance,
+so extensions, passwords, history, cookies and the Firefox Account are fully separate.
+
+- The sidebar shows the workspaces of all profiles, grouped by profile. Choosing a workspace of another
+  profile (click, <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd>, palette) starts that
+  profile's window or brings it to the front.
+- Tabs and whole workspaces can be moved to another profile (drag a tab onto its workspace, the tab menu,
+  or the workspace editor); they reopen there, signed in with that profile's accounts.
+- To sync a profile across devices, sign in to a Firefox Account in its window. Using a separate account per
+  profile keeps profiles separate on every device; an email alias (`you+work@example.com`) is enough.
+  The list of profiles itself travels with the default profile, so other devices offer the same profiles.
+- Profiles from earlier versions, based on Firefox containers, are migrated automatically: workspaces,
+  favorites, open tabs and sign-in cookies move to a real profile.
+
 ## Sync
 
 Sign in to your Firefox Account in Sillage (palette → Settings → Sync) on each device. Sillage registers its
 own engine with Firefox Sync, so its data is encrypted with your account keys and stored in a separate
 collection that regular Firefox clients ignore.
 
-- Synced: workspaces (name, icon, color, profile, pinned items and folders, board notes), profiles (name,
-  favorites), and deletions.
+- Synced: the profile's workspaces (name, icon, color, pinned items and folders, board notes), favorites,
+  and deletions; the default profile also carries the list of profiles.
 - Not synced: open tabs (Firefox already shares them), sidebar width and visibility, board pan and zoom.
-  Each profile's Firefox container is created locally when the profile first arrives on a device.
 - Conflicts are resolved per workspace and per profile: the most recent change wins. When a fresh install
   joins, its untouched default workspace is replaced by your synced workspaces.
 

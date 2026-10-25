@@ -17,6 +17,8 @@
   const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
   // Firefox Sync engine (lives as long as the application, unlike this window).
   const SillageSync = ChromeUtils.importESModule("chrome://sillage/content/sillage-sync.sys.mjs");
+  // Real Firefox profiles: registry, other instances, hand-over (see sillage-profiles.sys.mjs).
+  const Profiles = ChromeUtils.importESModule("chrome://sillage/content/sillage-profiles.sys.mjs");
 
   /* ---------- utilities ---------- */
 
@@ -111,6 +113,16 @@
         d = migrate(Object.assign(def, d || {}));
         d.settings = Object.assign(defaults().settings, d.settings);
         if (!d.workspaces.length) d.workspaces = def.workspaces;
+        // This instance's profile. Container-based profiles from older versions stay in d.profiles
+        // until they are migrated to real profiles (see migrateContainerProfiles).
+        const me = await Profiles.identify();
+        d.self = me.id;
+        if (!d.profiles.some(p => p.id === me.id)) {
+          const reg = await Profiles.readRegistry();
+          d.profiles.unshift({ id: me.id, name: reg.profiles.find(p => p.id === me.id)?.name || "Personal", userContextId: 0, favorites: [] });
+        }
+        if (!me.isDefault) d.profiles = d.profiles.filter(p => p.id === me.id);
+        for (const w of d.workspaces) if (!me.isDefault || !d.profiles.some(p => p.id === w.profile)) w.profile = me.id;
         shared.data = d;
         shared.persist = () => IOUtils.writeJSON(DATA_PATH, shared.data, { tmpPath: DATA_PATH + ".tmp" });
         try { shared.hist = await IOUtils.readJSON(HIST_PATH); } catch { shared.hist = {}; }
@@ -132,6 +144,8 @@
   }
 
   let D; // persistent data
+  let registry = { profiles: [] }; // all Sillage profiles on this machine (profiles.json)
+  let foreign = []; // [{ profile, workspaces }] of the other profiles
   let activeWs; // active workspace of THIS window
   let sidebarVisible = true; // per window; the last choice is the default for new windows
   let little = false; // Little Sillage window (external links), see below
@@ -306,11 +320,101 @@
     if (boardWasOpen || isBlank(target)) openBoard();
   }
 
-  /* Previous / next workspace (no wrap-around). */
+  /* ---------- workspaces of all profiles ----------
+     Every instance lists the workspaces of all profiles (grouped by profile, in registry order); choosing
+     one of another profile hands over to that profile's instance. */
+
+  function allWorkspaces() {
+    const out = [];
+    for (const entry of registry.profiles.length ? registry.profiles : [{ id: D.self }]) {
+      if (entry.id === D.self) for (const w of D.workspaces) out.push({ ...w, profileId: D.self, own: true });
+      else for (const w of foreign.find(f => f.profile.id === entry.id)?.workspaces || []) out.push({ ...w, profileId: entry.id, own: false });
+    }
+    return out;
+  }
+
+  async function refreshProfiles() {
+    try {
+      await Profiles.heartbeat();
+      registry = await Profiles.readRegistry();
+      const next = await Profiles.readForeign(registry);
+      const changed = JSON.stringify(next) !== JSON.stringify(foreign);
+      foreign = next;
+      if (changed) render();
+      if (await Profiles.inboxPending()) await processInbox();
+    } catch (e) { log("profiles " + e); }
+  }
+
+  /* Goes to a workspace of any profile. */
+  function goToWorkspace(id) {
+    if (wsById(id)) return switchWs(id);
+    const f = foreign.find(x => x.workspaces.some(w => w.id === id));
+    if (f) handOver(f.profile, { type: "switch", ws: id });
+  }
+
+  /* Sends an action to another profile's instance and starts or raises it. */
+  async function handOver(entry, action) {
+    try {
+      await Profiles.ensureProfileDir(entry);
+      if (action) await Profiles.sendToInbox(entry, action);
+      await Profiles.launch(entry);
+    } catch (e) { log("hand over " + e); toast(`Could not open the ${entry.name} profile`); }
+  }
+
+  /* Actions sent by other instances (see Profiles.sendToInbox). */
+  let inboxBusy = false;
+  async function processInbox() {
+    if (inboxBusy || little) return;
+    inboxBusy = true;
+    try {
+      const actions = await Profiles.takeInbox();
+      let target = null;
+      for (const a of actions) {
+        if (a.type === "workspace" && a.ws) {
+          const ws = { ...a.ws, profile: D.self };
+          const i = D.workspaces.findIndex(w => w.id === ws.id);
+          if (i >= 0) D.workspaces[i] = { ...D.workspaces[i], ...ws }; else D.workspaces.push(ws);
+          for (const url of a.urls || []) newTab(url, { background: true, ws: ws.id });
+          target = ws.id;
+        } else if (a.type === "open") {
+          const wsId = wsById(a.ws) ? a.ws : activeWs;
+          for (const url of a.urls || []) newTab(url, { background: true, ws: wsId });
+          target ||= wsId;
+        } else if (a.type === "switch" && wsById(a.ws)) {
+          target = a.ws;
+        } else if (a.type === "cookies") {
+          importCookies(a.cookies || []);
+        } else if (a.type === "history" && Array.isArray(a.entries)) {
+          (shared.hist[D.self] ||= []).push(...a.entries);
+        }
+      }
+      if (actions.length) {
+        save();
+        if (target) switchWs(target);
+        render();
+        Profiles.raise(window);
+      }
+    } catch (e) { log("inbox " + e); } finally { inboxBusy = false; }
+  }
+
+  function importCookies(list) {
+    let n = 0;
+    for (const c of list) {
+      try {
+        Services.cookies.add(c.host, c.path, c.name, c.value, c.isSecure, c.isHttpOnly, c.isSession,
+          c.expiry, {}, c.sameSite, c.schemeMap, c.isPartitioned || false);
+        n++;
+      } catch (e) { log("cookie " + e); }
+    }
+    if (n) log(`imported ${n} cookies`);
+  }
+
+  /* Previous / next workspace across all profiles (no wrap-around). */
   function stepWs(dir) {
-    const i = D.workspaces.findIndex(w => w.id === activeWs);
-    const next = D.workspaces[i + dir];
-    if (next) switchWs(next.id);
+    const all = allWorkspaces();
+    const i = all.findIndex(w => w.id === activeWs);
+    const next = all[i + dir];
+    if (next) goToWorkspace(next.id);
   }
 
   function selectTab(t) {
@@ -620,40 +724,109 @@
 
   /* ---------- profiles & workspaces ---------- */
 
-  const CONTAINER_COLORS = ["blue", "turquoise", "green", "yellow", "orange", "red", "pink", "purple"];
-
-  function createProfile(name) {
-    const ci = ContextualIdentityService.create(name, "fingerprint", CONTAINER_COLORS[D.profiles.length % CONTAINER_COLORS.length]);
-    const p = { id: uid(), name, userContextId: ci.userContextId, favorites: [] };
-    D.profiles.push(p);
-    save();
-    return p;
+  /* Seed data for a new profile: its identity and, optionally, a first workspace. */
+  function profileSeed(id, name, workspaces = [], favorites = []) {
+    return {
+      version: 2,
+      profiles: [{ id, name, userContextId: 0, favorites }],
+      workspaces: workspaces.map(w => ({ ...w, profile: id })),
+      settings: { ...D.settings },
+    };
   }
 
-  function deleteProfile(id) {
-    const p = profById(id);
-    if (!p || p.userContextId === 0 || D.workspaces.some(w => w.profile === id)) return false;
-    for (const t of gBrowser.tabs.filter(t => alive(t) && (t.userContextId || 0) === p.userContextId)) gBrowser.removeTab(t);
-    try { ContextualIdentityService.remove(p.userContextId); } catch (e) { log("remove container " + e); }
-    try {
-      Services.clearData.deleteDataFromOriginAttributesPattern({ userContextId: p.userContextId });
-    } catch (e) { log("clear data " + e); }
-    D.profiles.splice(D.profiles.indexOf(p), 1);
-    delete shared.hist[id];
-    SillageSync.noteDeletion(D, "profile", id);
-    save();
-    toast(`Profile “${p.name}” deleted`);
+  /* Creates a real Firefox profile (its own extensions, passwords, history and Firefox Account). */
+  async function createProfile(name, { workspace = null } = {}) {
+    const first = workspace || { id: uid(), name, icon: "💼", hue: Math.floor(Math.random() * 360), pinned: [] };
+    const entry = await Profiles.createProfile(name, profileSeed("pending", name, [first]));
+    // The seed was written before the id was known: fix it.
+    const path = PathUtils.join(Profiles.profileDir(entry), "sillage.json");
+    await IOUtils.writeJSON(path, profileSeed(entry.id, name, [first]));
+    registry = await Profiles.readRegistry();
+    await refreshProfiles();
+    return { entry, workspace: first };
+  }
+
+  /* Removes a profile from the registry. Its directory stays on disk. */
+  async function deleteProfile(id) {
+    const f = foreign.find(x => x.profile.id === id);
+    if (!f || f.workspaces.length || id === "default") return false;
+    await Profiles.updateRegistry(reg => { reg.profiles = reg.profiles.filter(p => p.id !== id); });
+    await refreshProfiles();
+    toast(`Profile “${f.profile.name}” removed (its files stay in ${Profiles.profileDir(f.profile)})`);
     return true;
   }
 
-  function saveWs({ id, name, icon: ic, hue, profile }) {
+  /* Moves tabs to a workspace of another profile: they reopen there and close here. */
+  function sendTabsTo(wsId, tabs) {
+    const f = foreign.find(x => x.workspaces.some(w => w.id === wsId));
+    if (!f) return;
+    const urls = tabs.map(tabUrl).filter(u => /^(https?|file):/.test(u));
+    handOver(f.profile, { type: "open", ws: wsId, urls });
+    for (const t of tabs) if (alive(t)) gBrowser.removeTab(t, { animate: false });
+  }
+
+  /* Moves a whole workspace (pinned items, board, open tabs) to another profile. */
+  function moveWorkspaceToProfile(wsId, entry) {
+    const w = wsById(wsId);
+    if (!w || D.workspaces.length < 2) return toast("A profile needs at least one workspace");
+    const tabs = gBrowser.tabs.filter(t => alive(t) && tabWs(t) === wsId && !isBlank(t) && !tabItemId(t));
+    const ws = JSON.parse(JSON.stringify({ ...w, profile: entry.id }));
+    handOver(entry, { type: "workspace", ws, urls: tabs.map(tabUrl) });
+    if (activeWs === wsId) switchWs(D.workspaces.find(x => x.id !== wsId).id);
+    gBrowser.removeTabs(gBrowser.tabs.filter(t => alive(t) && tabWs(t) === wsId));
+    D.workspaces.splice(D.workspaces.indexOf(w), 1);
+    SillageSync.noteDeletion(D, "workspace", wsId);
+    save();
+    render();
+  }
+
+  /* Older versions modelled profiles as Firefox containers. Each becomes a real profile: its workspaces,
+     favorites, open tabs, cookies and palette history move over; the container is then removed. */
+  async function migrateContainerProfiles() {
+    const legacy = D.profiles.filter(p => p.userContextId > 0);
+    for (const p of legacy) {
+      try {
+        const workspaces = D.workspaces.filter(w => w.profile === p.id).map(w => JSON.parse(JSON.stringify(w)));
+        const entry = await Profiles.createProfile(p.name, null);
+        await IOUtils.writeJSON(PathUtils.join(Profiles.profileDir(entry), "sillage.json"), profileSeed(entry.id, p.name, workspaces, p.favorites));
+        for (const w of workspaces) {
+          const urls = gBrowser.tabs.filter(t => alive(t) && tabWs(t) === w.id && !tabItemId(t) && !isBlank(t)).map(tabUrl);
+          if (urls.length) await Profiles.sendToInbox(entry, { type: "open", ws: w.id, urls });
+        }
+        const cookies = Services.cookies.getCookiesWithOriginAttributes(JSON.stringify({ userContextId: p.userContextId }))
+          .map(c => ({ host: c.host, path: c.path, name: c.name, value: c.value, isSecure: c.isSecure, isHttpOnly: c.isHttpOnly,
+            isSession: c.isSession, expiry: c.expiry, sameSite: c.sameSite, schemeMap: c.schemeMap, isPartitioned: !!c.isPartitioned }));
+        if (cookies.length) await Profiles.sendToInbox(entry, { type: "cookies", cookies });
+        if (shared.hist[p.id]?.length) await Profiles.sendToInbox(entry, { type: "history", entries: shared.hist[p.id] });
+        // Remove the container profile from this instance.
+        gBrowser.removeTabs(gBrowser.tabs.filter(t => alive(t) && ((t.userContextId || 0) === p.userContextId || workspaces.some(w => w.id === tabWs(t)))));
+        D.workspaces = D.workspaces.filter(w => w.profile !== p.id);
+        D.profiles = D.profiles.filter(x => x !== p);
+        delete shared.hist[p.id];
+        try { ContextualIdentityService.remove(p.userContextId); } catch {}
+        try { Services.clearData.deleteDataFromOriginAttributesPattern({ userContextId: p.userContextId }); } catch {}
+        log(`migrated container profile ${p.name} to ${entry.dir}`);
+        toast(`“${p.name}” is now a separate Firefox profile`, 6000);
+      } catch (e) { log("migration " + e + "\n" + e.stack); }
+    }
+    if (legacy.length) {
+      if (!wsById(activeWs)) switchWs(D.workspaces[0].id);
+      save();
+      await refreshProfiles();
+    }
+  }
+
+  function saveWs({ id, name, icon: ic, hue, profile = D.self }) {
+    const other = profile !== D.self ? registry.profiles.find(p => p.id === profile) : null;
     if (id) {
       const w = wsById(id);
-      const changed = w.profile !== profile;
-      Object.assign(w, { name, icon: ic, hue, profile });
-      // Profile changed: reopen the workspace's tabs in the new container.
-      if (changed) for (const t of gBrowser.tabs.filter(t => alive(t) && tabWs(t) === id)) rehome(t, profById(profile).userContextId);
+      Object.assign(w, { name, icon: ic, hue });
+      if (other) return moveWorkspaceToProfile(id, other);
       applyVisibility();
+    } else if (other) {
+      // New workspace in another profile: created and opened by that profile's instance.
+      handOver(other, { type: "workspace", ws: { id: uid(), name, icon: ic, hue, profile: other.id, pinned: [] } });
+      return toast(`Opening ${name} in the ${other.name} profile…`);
     } else {
       const w = { id: uid(), name, icon: ic, hue, profile, pinned: [] };
       D.workspaces.push(w);
@@ -813,11 +986,18 @@
     orb.querySelector(".sl-orb-count").textContent = notes || "";
     if (boardOpen) renderBoard();
 
-    wsBar.replaceChildren(...D.workspaces.map((w, i) => h("button", {
-      class: `sl-ws-dot${w.id === ws.id ? " active" : ""}`, "data-ws": w.id, "data-index": i, draggable: "true",
-      title: `${w.name}${showProfile ? " · " + profById(w.profile).name : ""} (Ctrl+${i + 1})`, text: w.icon,
-    })));
-
+    const all = allWorkspaces();
+    const multi = registry.profiles.length > 1;
+    const profName = id => registry.profiles.find(p => p.id === id)?.name || "";
+    let ownIndex = 0;
+    wsBar.replaceChildren(...all.flatMap((w, i) => [
+      multi && i > 0 && all[i - 1].profileId !== w.profileId && h("span", { class: "sl-ws-sep" }),
+      h("button", {
+        class: `sl-ws-dot${w.id === ws.id ? " active" : ""}${w.own ? "" : " foreign"}`, "data-ws": w.id,
+        "data-index": w.own ? ownIndex++ : null, "data-profile": w.profileId, draggable: w.own ? "true" : null,
+        title: `${w.name}${multi ? " · " + profName(w.profileId) : ""} (Ctrl+${i + 1})`, text: w.icon,
+      }),
+    ].filter(Boolean)));
     // Remember pinned items' favicons and titles for display when unloaded.
     for (const { item } of walkItems()) {
       const t = tabForItem(item.id);
@@ -860,7 +1040,7 @@
   function wireSidebar() {
     side.addEventListener("click", e => {
       const dot = e.target.closest(".sl-ws-dot");
-      if (dot) return switchWs(dot.dataset.ws);
+      if (dot) return goToWorkspace(dot.dataset.ws);
       const fh = e.target.closest(".sl-folder-head");
       if (fh) { const r = findFolder(fh.dataset.folderId); if (r) { r.f.open = !r.f.open; save(); render(); } return; }
       const row = rowTarget(e);
@@ -960,7 +1140,7 @@
     const dot = e.target.closest(".sl-ws-dot");
     // Reordering workspaces: drop on the left or right half of another workspace.
     if (dragging.kind === "ws") {
-      if (!dot) return null;
+      if (!dot || dot.classList.contains("foreign")) return null;
       const r = dot.getBoundingClientRect(), before = e.clientX < r.left + r.width / 2;
       return { el: dot, mark: before ? "sl-drop-before" : "sl-drop-after", dest: { index: +dot.dataset.index + (before ? 0 : 1) } };
     }
@@ -1032,6 +1212,7 @@
       const dest = { wsId: drop.dest.wsId || activeWs, ...drop.dest };
       const dr = dragging;
       endDrag();
+      if (dest.wsId && !wsById(dest.wsId)) { if (dr.tab) sendTabsTo(dest.wsId, [dr.tab]); return; }
       if (dr.kind === "ws") moveWorkspace(dr.id, dest.index);
       else if (dr.kind === "folder") moveFolder(dr.id, dest.index ?? Infinity);
       else if (dr.tab) moveTab(dr.tab, dest);
@@ -1136,11 +1317,15 @@
       list === "pinned" && { label: "Unpin", fn: () => (t ? togglePin(t) : moveItem(r.item.id, { list: "today" })) },
       list !== "favorites" && { label: "Add to Favorites", fn: () => (t ? moveTab(t, { list: "favorites" }) : moveItem(r.item.id, { list: "favorites" })) },
       list === "favorites" && { label: "Remove from Favorites", fn: () => (t ? toggleFavorite(t) : moveItem(r.item.id, { list: "today" })) },
-      others.length && list !== "favorites" && {
-        label: "Move to", submenu: others.map(w => ({
-          label: `${w.icon}  ${w.name}`,
-          fn: () => (t ? moveTab(t, { list: list === "pinned" ? "pinned" : "today", wsId: w.id }) : moveItem(r.item.id, { list: "pinned", wsId: w.id })),
-        })),
+      (others.length || (t && foreign.some(f => f.workspaces.length))) && list !== "favorites" && {
+        label: "Move to", submenu: [
+          ...others.map(w => ({
+            label: `${w.icon}  ${w.name}`,
+            fn: () => (t ? moveTab(t, { list: list === "pinned" ? "pinned" : "today", wsId: w.id }) : moveItem(r.item.id, { list: "pinned", wsId: w.id })),
+          })),
+          // Workspaces of other profiles: the tab reopens there (sign-ins are per profile).
+          ...(t ? foreign.flatMap(f => f.workspaces.map(w => ({ label: `${w.icon}  ${w.name} — ${f.profile.name}`, fn: () => sendTabsTo(w.id, [t]) }))) : []),
+        ],
       },
       t && { label: t.hasAttribute("muted") ? "Unmute" : "Mute", fn: () => t.toggleMuteAudio() },
       "-",
@@ -1246,7 +1431,7 @@
   const COMMANDS = [
     { cmd: "new-ws", title: "New workspace", kw: "space create" },
     { cmd: "edit-ws", title: "Edit this workspace", kw: "rename color icon profile" },
-    { cmd: "new-profile", title: "New profile", kw: "account container work" },
+    { cmd: "new-profile", title: "New profile", kw: "account firefox work separate extensions" },
     { cmd: "new-folder", title: "New folder", kw: "pinned bookmarks" },
     { cmd: "toggle-sidebar", title: "Toggle sidebar", kw: "show hide" },
     { cmd: "board", title: "Board", kw: "notes sticky post-it canvas" },
@@ -1275,26 +1460,28 @@
   function dynamicCommands() {
     const out = D.workspaces.filter(w => w.id !== activeWs)
       .map(w => ({ cmd: "ws:" + w.id, title: `Go to workspace ${w.icon} ${w.name}`, kw: "space switch" }));
-    for (const p of D.profiles) {
-      if (p.userContextId !== 0 && !D.workspaces.some(w => w.profile === p.id)) {
-        out.push({ cmd: "del-profile:" + p.id, title: `Delete profile ${p.name} (cookies and history)`, kw: "profile remove" });
-      }
+    for (const f of foreign) {
+      for (const w of f.workspaces) out.push({ cmd: "ws:" + w.id, title: `Go to workspace ${w.icon} ${w.name} (${f.profile.name})`, kw: "space switch profile" });
+      if (!f.workspaces.length && f.profile.id !== "default") out.push({ cmd: "del-profile:" + f.profile.id, title: `Remove profile ${f.profile.name}`, kw: "profile delete" });
+      out.push({ cmd: "open-profile:" + f.profile.id, title: `Open profile ${f.profile.name}`, kw: "profile window switch" });
     }
     return out;
   }
 
   function runCommand(cmd) {
-    if (cmd.startsWith("ws:")) return switchWs(cmd.slice(3));
+    if (cmd.startsWith("ws:")) return goToWorkspace(cmd.slice(3));
     if (cmd.startsWith("del-profile:")) return deleteProfile(cmd.slice(12));
+    if (cmd.startsWith("open-profile:")) { const e = registry.profiles.find(p => p.id === cmd.slice(13)); return e && handOver(e, null); }
     switch (cmd) {
       case "new-ws": return openWsEditor(null);
       case "edit-ws": return openWsEditor(activeWs);
       case "new-profile": {
         const name = { value: "" };
-        if (!Services.prompt.prompt(window, "New profile", "Profile name (separate cookies, sessions and history):", name, null, {}) || !name.value.trim()) return;
-        const p = createProfile(name.value.trim());
-        toast(`Profile “${p.name}” created — assign it to a workspace`);
-        return openWsEditor(null, p.id);
+        if (!Services.prompt.prompt(window, "New profile", "Profile name (its own extensions, passwords, history and Firefox Account):", name, null, {}) || !name.value.trim()) return;
+        return createProfile(name.value.trim()).then(({ entry }) => {
+          toast(`Profile “${entry.name}” created — sign in to a Firefox Account there to sync it`, 6000);
+          handOver(entry, null);
+        });
       }
       case "new-folder": { const f = createFolder(); if (!sidebarVisible) toggleSidebar(); return renameFolderSoon(f.id); }
       case "toggle-sidebar": return toggleSidebar();
@@ -1521,9 +1708,9 @@
 
     const fillProfiles = selected => {
       profPopup.replaceChildren();
-      for (const p of D.profiles) {
+      for (const p of registry.profiles) {
         const mi = doc.createXULElement("menuitem");
-        mi.setAttribute("label", p.name + (p.userContextId === 0 ? " (default)" : ""));
+        mi.setAttribute("label", p.name + (p.id === D.self ? " (this window)" : ""));
         mi.setAttribute("value", p.id);
         profPopup.append(mi);
       }
@@ -1536,18 +1723,22 @@
     prof.addEventListener("command", () => {
       if (prof.value !== "__new__") return;
       const n = { value: "" };
-      if (Services.prompt.prompt(window, "New profile", "Profile name (separate cookies, sessions and history):", n, null, {}) && n.value.trim()) {
-        fillProfiles(createProfile(n.value.trim()).id);
-      } else fillProfiles(wsById(editingId)?.profile || curWs().profile);
+      if (Services.prompt.prompt(window, "New profile", "Profile name (its own extensions, passwords, history and Firefox Account):", n, null, {}) && n.value.trim()) {
+        Profiles.createProfile(n.value.trim(), null).then(async entry => {
+          await IOUtils.writeJSON(PathUtils.join(Profiles.profileDir(entry), "sillage.json"), profileSeed(entry.id, entry.name, []));
+          registry = await Profiles.readRegistry();
+          fillProfiles(entry.id);
+        });
+      } else fillProfiles(wsById(editingId)?.profile || D.self);
     });
 
     const updatePreview = () => { preview.style.setProperty("--pv-h", hue.value); preview.textContent = ic.value || "·"; };
     const close = () => { wsEdit.hidden = true; gBrowser.selectedBrowser.focus(); };
     const submit = () => {
       if (!name.value.trim()) return name.focus();
-      if (editingId && wsById(editingId).profile !== prof.value) {
+      if (editingId && prof.value !== D.self) {
         const n = gBrowser.tabs.filter(t => alive(t) && tabWs(t) === editingId).length;
-        if (n && !Services.prompt.confirm(window, "Sillage", `Changing the profile reopens this workspace's ${n} tabs in the new profile (you may need to sign in again). Continue?`)) return;
+        if (!Services.prompt.confirm(window, "Sillage", `Move this workspace${n ? ` and its ${n} tabs` : ""} to the ${registry.profiles.find(p => p.id === prof.value)?.name} profile? It will open in that profile's window (sign-ins are per profile).`)) return;
       }
       close();
       saveWs({ id: editingId, name: name.value.trim(), icon: ic.value.trim() || "·", hue: +hue.value, profile: prof.value });
@@ -1561,7 +1752,7 @@
       h("label", {}, "Icon", ic),
       h("div", { id: "sl-wsf-emojis" }, EMOJIS.map(em => h("button", { text: em, onclick: () => { ic.value = em; updatePreview(); } }))),
       h("label", {}, "Color", hue),
-      h("div", { class: "sl-wsf-field" }, h("span", { text: "Profile — cookies, sessions and history are shared by workspaces using the same profile" }), prof),
+      h("div", { class: "sl-wsf-field" }, h("span", { text: "Profile — each profile has its own extensions, passwords, history, sign-ins and Firefox Account" }), prof),
       h("div", { class: "sl-actions" },
         h("button", { text: "Cancel", onclick: close }),
         h("button", { class: "primary", text: "Save", onclick: submit })));
@@ -1579,7 +1770,7 @@
       name.value = w ? w.name : "";
       ic.value = w ? w.icon : EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
       hue.value = w ? w.hue : Math.floor(Math.random() * 360);
-      fillProfiles(profileId || (w ? w.profile : curWs().profile));
+      fillProfiles(profileId || D.self);
       updatePreview();
       wsEdit.hidden = false;
       name.focus();
@@ -1636,6 +1827,11 @@
       Object.defineProperty(wrapper, n, { get: () => (typeof orig[n] === "function" ? orig[n].bind(orig) : orig[n]), enumerable: true });
     }
     wrapper.openURI = (uri, openWindowInfo, where, flags, ...rest) => {
+      // Another profile's instance handing over to this one (see Profiles.launch).
+      if (uri?.spec?.startsWith(Profiles.HANDOFF_URL)) {
+        processInbox().then(() => Profiles.raise(window));
+        return null;
+      }
       if (D.settings.littleWindow && (flags & Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL) && /^https?:/.test(uri?.spec || "")) {
         openLittle(uri.spec);
         return null;
@@ -2044,8 +2240,8 @@
         if (m) {
           e.preventDefault();
           e.stopPropagation();
-          const w = D.workspaces[+m[1] - 1];
-          if (w) switchWs(w.id);
+          const w = allWorkspaces()[+m[1] - 1];
+          if (w) goToWorkspace(w.id);
           return;
         }
       }
@@ -2186,6 +2382,11 @@
         const t = gBrowser.getTabForBrowser(browser);
         if (t) {
           const url = location?.spec || "";
+          // Cold start through a hand-over: the startup tab carries the hand-over URL.
+          if (url.startsWith(Profiles.HANDOFF_URL)) {
+            setTimeout(() => { if (alive(t)) gBrowser.removeTab(t, { animate: false }); processInbox(); }, 0);
+            return;
+          }
           recordVisit(t, url);
           if (!EMPTY_URLS.has(url) && getVal(t, BLANK_KEY)) setVal(t, BLANK_KEY, "");
           else if (EMPTY_URLS.has(url) && adoptEmptyTab(t) && t.selected) openBoard();
@@ -2207,6 +2408,20 @@
     if (!little && SessionStore.getCustomWindowValue(window, "sillage-little")) enterLittle();
     if (little) { log("Little Sillage window ready"); return; }
     purgeNotes();
+    await refreshProfiles();
+    if (Profiles.current().isDefault) {
+      SillageSync.setRegistryHooks({
+        list: () => registry.profiles.filter(p => p.id !== D.self),
+        add: (id, name) => {
+          if (registry.profiles.some(p => p.id === id)) return;
+          Profiles.updateRegistry(reg => { if (!reg.profiles.some(p => p.id === id)) reg.profiles.push({ id, name, dir: `profiles/${id}` }); })
+            .then(refreshProfiles);
+        },
+      });
+      await migrateContainerProfiles();
+    }
+    setInterval(refreshProfiles, 1000);
+    await processInbox();
     for (const t of gBrowser.tabs) if (alive(t) && !tabWs(t)) setVal(t, WS_KEY, activeWs);
     // Firefox's native pinned tabs cannot be hidden, so unpin them.
     for (const t of [...gBrowser.tabs]) if (t.pinned) gBrowser.unpinTab(t);
@@ -2241,7 +2456,8 @@
       renderNow, newTab, openItem, moveTab, moveItem, moveFolder, togglePin, toggleFavorite, deleteItem, createFolder,
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
-      deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
+      deleteProfile, inView, profOf, copyUrl, Profiles, refreshProfiles, processInbox, goToWorkspace, allWorkspaces,
+      migrateContainerProfiles, sendTabsTo, get registry() { return registry; }, get foreign() { return foreign; }, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
       openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace,
