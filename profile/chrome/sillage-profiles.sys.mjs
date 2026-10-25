@@ -121,7 +121,7 @@ const foreignCache = new Map(); // id -> { mtime, data }
 export async function readForeign(reg) {
   const out = [];
   for (const entry of reg.profiles) {
-    if (entry.id === self.id) continue;
+    if (entry.id === self.id || profileDir(entry) === self.dir) continue;
     const path = join(profileDir(entry), "sillage.json");
     let mtime = 0;
     try { mtime = (await IOUtils.stat(path)).lastModified; } catch {}

@@ -326,9 +326,14 @@
 
   function allWorkspaces() {
     const out = [];
-    for (const entry of registry.profiles.length ? registry.profiles : [{ id: D.self }]) {
+    const entries = registry.profiles.some(p => p.id === D.self) ? registry.profiles : [{ id: D.self }, ...registry.profiles];
+    const ownIds = new Set(D.workspaces.map(w => w.id));
+    for (const entry of entries) {
       if (entry.id === D.self) for (const w of D.workspaces) out.push({ ...w, profileId: D.self, own: true });
-      else for (const w of foreign.find(f => f.profile.id === entry.id)?.workspaces || []) out.push({ ...w, profileId: entry.id, own: false });
+      else for (const w of foreign.find(f => f.profile.id === entry.id)?.workspaces || []) {
+        // A workspace of this window is never treated as another profile's.
+        if (!ownIds.has(w.id)) out.push({ ...w, profileId: entry.id, own: false });
+      }
     }
     return out;
   }
@@ -354,6 +359,12 @@
 
   /* Sends an action to another profile's instance and starts or raises it. */
   async function handOver(entry, action) {
+    const target = Profiles.profileDir(entry);
+    if (entry.id === D.self || target === PathUtils.profileDir) {
+      log(`hand-over refused: ${entry.id} is this profile (${target})`);
+      return;
+    }
+    log(`hand-over to ${entry.id} (${target}): ${action?.type || "open"}`);
     try {
       await Profiles.ensureProfileDir(entry);
       if (action) await Profiles.sendToInbox(entry, action);
