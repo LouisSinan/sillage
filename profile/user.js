@@ -28,6 +28,8 @@ user_pref("browser.fullscreen.autohide", false);
 user_pref("media.eme.enabled", true);
 user_pref("media.gmp-widevinecdm.enabled", true);
 user_pref("media.gmp-widevinecdm.visible", true);
+// Picture-in-Picture starts automatically when leaving a tab that plays a video
+user_pref("media.videocontrols.picture-in-picture.enable-when-switching-tabs.enabled", true);
 // No "Speech Dispatcher is required" notification when the system has no speech synthesis
 user_pref("media.webspeech.synth.dont_notify_on_error", true);
 

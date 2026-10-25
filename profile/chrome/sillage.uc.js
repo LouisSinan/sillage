@@ -55,6 +55,7 @@
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 3 2.5 14 0 17M12 3.5c-2.5 3-2.5 14 0 17"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
     sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
+    board: '<path d="M5 4h10l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M15 4v4h4"/><path d="M8 12h8M8 16h5"/>',
     user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-4 4-5.5 7-5.5s6 1.5 7 5.5"/>',
   };
   function icon(name, cls = "") {
@@ -77,7 +78,7 @@
       profiles: [{ id: DEFAULT_PROFILE, name: "Personal", userContextId: 0, favorites: [] }],
       workspaces: [{ id: uid(), name: "Personal", icon: "🏠", hue: 250, profile: DEFAULT_PROFILE, pinned: [] }],
       lastWs: null,
-      settings: { sidebarVisible: true, sidebarWidth: 270, archiveHours: 168 },
+      settings: { sidebarVisible: true, sidebarWidth: 270, archiveHours: 168, littleWindow: true },
     };
   }
 
@@ -129,6 +130,8 @@
   let D; // persistent data
   let activeWs; // active workspace of THIS window
   let sidebarVisible = true; // per window; the last choice is the default for new windows
+  let little = false; // Little Sillage window (external links), see below
+  shared.littleWindows ||= new WeakSet();
 
   const wsById = id => D.workspaces.find(w => w.id === id);
   const curWs = () => wsById(activeWs) || D.workspaces[0];
@@ -233,6 +236,7 @@
   /* Tabs of other workspaces are hidden using Firefox's native tab hiding. */
   let switching = false;
   function applyVisibility() {
+    if (little) return;
     for (const t of gBrowser.tabs) {
       if (!alive(t)) continue;
       const visible = inView(t);
@@ -245,6 +249,7 @@
 
   function switchWs(id, { tab = null, animate = true } = {}) {
     if (!wsById(id)) return;
+    const boardWasOpen = boardOpen;
     const from = activeWs;
     const cur = gBrowser.selectedTab;
     if (from && inView(cur, from)) lastSelected.set(from, cur);
@@ -274,7 +279,8 @@
     if (animate && from && from !== id) slide(D.workspaces.findIndex(w => w.id === id) > D.workspaces.findIndex(w => w.id === from));
     save();
     render();
-    if (created && !cycling) openPalette("current");
+    if (boardWasOpen || (created && !cycling && curWs().board?.notes?.length)) openBoard();
+    else if (created && !cycling) openPalette("current");
   }
 
   /* Previous / next workspace (no wrap-around). */
@@ -569,6 +575,7 @@
 
   /* Today tabs not viewed for N hours are closed (they remain in history). */
   function archive() {
+    if (little) return;
     const hours = D.settings.archiveHours;
     if (!hours) return;
     const cutoff = Date.now() - hours * 3600e3;
@@ -634,7 +641,7 @@
 
   /* ---------- user interface ---------- */
 
-  let side, scroll, favBox, pinBox, todayBox, wsBar, wsTitle, peekZone, toastEl;
+  let side, scroll, favBox, pinBox, todayBox, wsBar, wsTitle, peekZone, toastEl, boardRow;
 
   function buildUi() {
     doc.documentElement.classList.add("sillage");
@@ -643,12 +650,14 @@
     favBox = h("div", { id: "sl-favorites", class: "sl-zone", "data-list": "favorites" });
     wsTitle = h("div", { id: "sl-ws-title" });
     pinBox = h("div", { id: "sl-pinned", class: "sl-zone", "data-list": "pinned" });
+    boardRow = h("div", { id: "sl-board-row", class: "sl-row", title: "Sticky notes for this workspace", onclick: toggleBoard },
+      icon("board"), h("span", { class: "sl-title", text: "Board" }), h("span", { class: "sl-board-count" }));
     todayBox = h("div", { id: "sl-today", class: "sl-zone", "data-list": "today" });
     const newTabRow = h("div", { id: "sl-newtab", class: "sl-row", onclick: () => openPalette("new") },
       icon("plus"), h("span", { class: "sl-title", text: "New Tab" }), h("kbd", { text: IS_MAC ? "⌘T" : "Ctrl T" }));
     const divider = h("div", { class: "sl-divider" }, h("span"),
       h("button", { text: "Clear", title: "Close today tabs", onclick: clearToday }));
-    scroll = h("div", { id: "sl-scroll" }, favBox, wsTitle, pinBox, divider, newTabRow, todayBox);
+    scroll = h("div", { id: "sl-scroll" }, favBox, wsTitle, boardRow, pinBox, divider, newTabRow, todayBox);
 
     wsBar = h("div", { id: "sl-ws-bar" });
     const bottom = h("div", { id: "sl-bottom" },
@@ -671,6 +680,7 @@
     wirePeek();
     buildPalette();
     buildWsEditor();
+    buildBoard();
   }
 
   function favicon(url, iconUrl, busy = false) {
@@ -729,6 +739,7 @@
 
   function renderNow() {
     renderPending = false;
+    if (little) return renderLittle();
     // Safety net: the sidebar and the window must never be scrolled.
     for (const el of [side, $("#browser"), doc.documentElement, doc.body]) if (el && el.scrollTop) el.scrollTop = 0;
     tabsById.clear();
@@ -759,6 +770,11 @@
     }));
 
     todayBox.replaceChildren(...todayTabs(ws.id).map((t, i) => rowForTab(t, "today", i)));
+
+    const notes = ws.board?.notes?.filter(n => n.expires > Date.now()).length || 0;
+    boardRow.classList.toggle("active", boardOpen);
+    boardRow.querySelector(".sl-board-count").textContent = notes || "";
+    if (boardOpen) renderBoard();
 
     wsBar.replaceChildren(...D.workspaces.map((w, i) => h("button", {
       class: `sl-ws-dot${w.id === ws.id ? " active" : ""}`, "data-ws": w.id,
@@ -1181,6 +1197,10 @@
     { cmd: "new-profile", title: "New profile", kw: "account container work" },
     { cmd: "new-folder", title: "New folder", kw: "pinned bookmarks" },
     { cmd: "toggle-sidebar", title: "Toggle sidebar", kw: "show hide" },
+    { cmd: "board", title: "Board", kw: "notes sticky post-it canvas" },
+    { cmd: "new-note", title: "New sticky note", kw: "board post-it" },
+    { cmd: "little-on", title: "Open links from other apps in a Little Sillage window", kw: "external little arc" },
+    { cmd: "little-off", title: "Open links from other apps in the current workspace", kw: "external little arc" },
     { cmd: "copy-url", title: "Copy URL", kw: "link" },
     { cmd: "clear-today", title: "Clear today tabs", kw: "close archive" },
     { cmd: "reopen", title: "Reopen closed tab", kw: "restore undo" },
@@ -1225,6 +1245,12 @@
       }
       case "new-folder": { const f = createFolder(); if (!sidebarVisible) toggleSidebar(); return renameFolderSoon(f.id); }
       case "toggle-sidebar": return toggleSidebar();
+      case "board": return openBoard();
+      case "new-note": { openBoard(); return addNote(); }
+      case "little-on": case "little-off":
+        D.settings.littleWindow = cmd === "little-on";
+        save();
+        return toast(D.settings.littleWindow ? "Links from other apps open in a Little Sillage window" : "Links from other apps open in the current workspace");
       case "copy-url": return copyUrl();
       case "clear-today": return clearToday();
       case "reopen": return undoCloseTab();
@@ -1537,6 +1563,340 @@
     toast(`${count} bookmarks imported into ${w.name}`);
   }
 
+  /* ---------- Little Sillage: links from other apps open in a small, separate window ----------
+     Like Arc's "Little Arc": nothing lands in a workspace unless asked; "Open in" moves the tab into the
+     main window. Firefox hands external links to browserDOMWindow.openURI with OPEN_EXTERNAL. */
+
+  function hookExternalLinks() {
+    const orig = window.browserDOMWindow;
+    if (!orig || orig.sillageWrapper) return;
+    // Its methods are read-only, so wrap the whole object: openURI is intercepted, everything else is
+    // forwarded to Firefox's implementation.
+    const wrapper = { sillageWrapper: true, QueryInterface: ChromeUtils.generateQI(["nsIBrowserDOMWindow"]) };
+    const names = new Set();
+    for (let o = orig; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) for (const n of Object.getOwnPropertyNames(o)) names.add(n);
+    for (const n of names) {
+      if (n === "constructor" || n === "QueryInterface" || n === "openURI") continue;
+      Object.defineProperty(wrapper, n, { get: () => (typeof orig[n] === "function" ? orig[n].bind(orig) : orig[n]), enumerable: true });
+    }
+    wrapper.openURI = (uri, openWindowInfo, where, flags, ...rest) => {
+      if (D.settings.littleWindow && (flags & Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL) && /^https?:/.test(uri?.spec || "")) {
+        openLittle(uri.spec);
+        return null;
+      }
+      return orig.openURI(uri, openWindowInfo, where, flags, ...rest);
+    };
+    window.browserDOMWindow = wrapper;
+  }
+
+  function openLittle(url) {
+    const w = window.openDialog(AppConstants.BROWSER_CHROME_URL, "_blank", "chrome,all,dialog=no,width=1000,height=720", url);
+    shared.littleWindows.add(w);
+    return w;
+  }
+
+  function mainWindow() {
+    for (const w of Services.wm.getEnumerator("navigator:browser")) {
+      if (w !== window && !w.closed && w.Sillage && !w.Sillage.isLittle && w.toolbar.visible && !PrivateBrowsingUtils.isWindowPrivate(w)) return w;
+    }
+    return null;
+  }
+
+  let littleBar;
+  function enterLittle() {
+    little = true;
+    SessionStore.setCustomWindowValue(window, "sillage-little", "1");
+    doc.documentElement.classList.add("sl-little");
+    // Window title prefix, so window managers can float these windows (e.g. a Hyprland rule on the title).
+    const origTitle = gBrowser.getWindowTitleForBrowser.bind(gBrowser);
+    gBrowser.getWindowTitleForBrowser = b => "Little Sillage — " + origTitle(b);
+    gBrowser.updateTitlebar?.();
+    littleBar = h("div", { id: "sl-little-bar" });
+    $("#tabbrowser-tabbox").prepend(littleBar);
+    renderLittle();
+  }
+
+  function renderLittle() {
+    if (!littleBar) return;
+    const t = gBrowser.selectedTab;
+    const main = mainWindow();
+    const target = main?.Sillage?.activeWorkspace;
+    littleBar.replaceChildren(...[
+      favicon(tabUrl(t), tabIcon(t), t.hasAttribute("busy")),
+      h("span", { class: "sl-little-host", text: host(tabUrl(t)), title: tabUrl(t) }),
+      h("span", { class: "sl-little-spacer" }),
+      h("button", { class: "sl-little-open", title: "Move this tab into the main window", onclick: () => moveToMain(target?.id) },
+        target ? `Open in ${target.icon} ${target.name}` : "Open in Sillage"),
+      main && D.workspaces.length > 1 && h("button", { class: "sl-little-more", title: "Choose a workspace", onclick: e => popup(e, D.workspaces.map(w => ({ label: `${w.icon}  ${w.name}`, fn: () => moveToMain(w.id) }))) }, icon("chev")),
+      h("button", { class: "sl-little-close", title: "Close", onclick: () => window.close() }, icon("x")),
+    ].filter(Boolean));
+  }
+
+  /* Moves the current tab into a workspace of the main window (or turns this window into a regular one). */
+  function moveToMain(wsId) {
+    const main = mainWindow();
+    if (!main) {
+      little = false;
+      SessionStore.deleteCustomWindowValue(window, "sillage-little");
+      doc.documentElement.classList.remove("sl-little");
+      littleBar?.remove();
+      littleBar = null;
+      for (const t of gBrowser.tabs) setVal(t, WS_KEY, activeWs);
+      applyVisibility();
+      return render();
+    }
+    const t = gBrowser.selectedTab;
+    const adopted = main.gBrowser.adoptTab(t, { selectTab: true });
+    if (adopted) main.Sillage.adoptIntoWorkspace(adopted, wsId);
+    main.focus();
+    if (!gBrowser.tabs.some(x => alive(x) && x !== t)) window.close();
+  }
+
+  /* Called on the main window for a tab moved in from a Little Sillage window. */
+  function adoptIntoWorkspace(t, wsId = activeWs) {
+    if (!wsById(wsId)) wsId = activeWs;
+    setVal(t, ITEM_KEY, "");
+    setVal(t, WS_KEY, wsId);
+    t = rehome(t, profOf(wsId).userContextId);
+    const first = todayTabs(wsId).find(x => x !== t);
+    if (first) gBrowser.moveTabBefore(t, first);
+    selectTab(t);
+    render();
+    return t;
+  }
+
+  /* ---------- Board: an infinite canvas of sticky notes, one per workspace ----------
+     Notes live for 7 days (countdown and shrinking bar), then disappear unless renewed. */
+
+  const NOTE_LIFETIME = 7 * 86400e3;
+  const NOTE_COLORS = ["yellow", "pink", "blue", "green", "purple"];
+  let boardOpen = false, boardWrap, boardView, boardWorld, boardTimer;
+
+  function board(ws = curWs()) {
+    ws.board ||= { notes: [], view: { x: 0, y: 0, z: 1 } };
+    return ws.board;
+  }
+
+  /* Removes expired notes everywhere; returns true if something changed. */
+  function purgeNotes() {
+    const now = Date.now();
+    let changed = false;
+    for (const w of D.workspaces) {
+      const b = w.board;
+      if (!b) continue;
+      const kept = b.notes.filter(n => n.expires > now);
+      if (kept.length !== b.notes.length) { b.notes = kept; changed = true; }
+    }
+    if (changed) save();
+    return changed;
+  }
+
+  function remaining(n) {
+    const ms = Math.max(0, n.expires - Date.now());
+    const d = Math.floor(ms / 86400e3), hh = Math.floor(ms % 86400e3 / 3600e3), mm = Math.floor(ms % 3600e3 / 60e3);
+    return { ms, label: d ? `${d}d ${hh}h left` : hh ? `${hh}h ${mm}m left` : `${mm}m left`, ratio: ms / NOTE_LIFETIME };
+  }
+
+  function buildBoard() {
+    boardWorld = h("div", { id: "sl-board-world" });
+    boardView = h("div", { id: "sl-board-view" }, boardWorld);
+    const title = h("span", { class: "sl-board-title" });
+    const zoom = h("span", { class: "sl-board-zoom" });
+    boardWrap = h("div", { id: "sl-board-wrap", hidden: true },
+      h("div", { id: "sl-board-bar" }, title,
+        h("span", { class: "sl-board-hint", text: "Double-click to add a note · drag to pan · Ctrl+scroll to zoom" }),
+        zoom,
+        h("button", { class: "sl-board-btn", onclick: () => addNote() }, icon("plus"), "Note"),
+        h("button", { class: "sl-board-btn", title: "Close (Esc)", onclick: closeBoard }, icon("x"))),
+      boardView);
+    boardWrap.titleEl = title;
+    boardWrap.zoomEl = zoom;
+    doc.body.append(boardWrap);
+
+    const view = () => board().view;
+    const apply = () => {
+      const v = view();
+      boardWorld.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
+      boardView.style.backgroundPosition = `${v.x}px ${v.y}px`;
+      boardView.style.backgroundSize = `${24 * v.z}px ${24 * v.z}px`;
+      zoom.textContent = `${Math.round(v.z * 100)}%`;
+    };
+    boardWrap.apply = apply;
+    const toWorld = (cx, cy) => {
+      const r = boardView.getBoundingClientRect(), v = view();
+      return { x: (cx - r.left - v.x) / v.z, y: (cy - r.top - v.y) / v.z };
+    };
+
+    // Pan by dragging the background.
+    boardView.addEventListener("pointerdown", e => {
+      if (e.target !== boardView && e.target !== boardWorld) return;
+      e.preventDefault();
+      boardView.setPointerCapture(e.pointerId);
+      const v = view(), start = { x: e.clientX - v.x, y: e.clientY - v.y };
+      boardView.classList.add("panning");
+      const move = ev => { v.x = ev.clientX - start.x; v.y = ev.clientY - start.y; apply(); };
+      const up = () => {
+        boardView.removeEventListener("pointermove", move);
+        boardView.removeEventListener("pointerup", up);
+        boardView.classList.remove("panning");
+        save();
+      };
+      boardView.addEventListener("pointermove", move);
+      boardView.addEventListener("pointerup", up);
+    });
+    // Scroll pans, Ctrl+scroll zooms around the cursor.
+    boardView.addEventListener("wheel", e => {
+      if (e.target.closest(".sl-note textarea") && !e.ctrlKey) return;
+      e.preventDefault();
+      const v = view();
+      if (e.ctrlKey || e.metaKey) {
+        const p = toWorld(e.clientX, e.clientY);
+        v.z = Math.min(2.5, Math.max(0.25, v.z * Math.exp(-e.deltaY / 400)));
+        const r = boardView.getBoundingClientRect();
+        v.x = e.clientX - r.left - p.x * v.z;
+        v.y = e.clientY - r.top - p.y * v.z;
+      } else { v.x -= e.deltaX; v.y -= e.deltaY; }
+      apply();
+      clearTimeout(boardWrap.saveT);
+      boardWrap.saveT = setTimeout(save, 400);
+    }, { passive: false });
+    boardView.addEventListener("dblclick", e => {
+      if (e.target !== boardView && e.target !== boardWorld) return;
+      const p = toWorld(e.clientX, e.clientY);
+      addNote(p.x - 110, p.y - 20);
+    });
+    boardWrap.addEventListener("keydown", e => {
+      if (e.key === "Escape" && !e.target.closest("textarea")) { e.stopPropagation(); closeBoard(); }
+    });
+  }
+
+  function addNote(x, y, text = "") {
+    const b = board();
+    if (x == null) {
+      const r = boardView.getBoundingClientRect(), v = b.view;
+      x = (r.width / 2 - v.x) / v.z - 110 + (b.notes.length % 5) * 18;
+      y = (r.height / 2 - v.y) / v.z - 80 + (b.notes.length % 5) * 18;
+    }
+    const now = Date.now();
+    const n = { id: uid(), x: Math.round(x), y: Math.round(y), text, color: NOTE_COLORS[b.notes.length % NOTE_COLORS.length], created: now, expires: now + NOTE_LIFETIME };
+    b.notes.push(n);
+    save();
+    if (boardOpen) {
+      renderBoard();
+      boardWorld.querySelector(`[data-note="${n.id}"] textarea`)?.focus();
+    }
+    return n;
+  }
+
+  function noteEl(n) {
+    const b = board();
+    const r = remaining(n);
+    const text = h("textarea", { spellcheck: "false", placeholder: "Write something…" });
+    text.value = n.text;
+    const grow = () => { text.style.height = "auto"; text.style.height = text.scrollHeight + "px"; };
+    text.addEventListener("input", () => {
+      n.text = text.value;
+      grow();
+      clearTimeout(n._t);
+      n._t = setTimeout(save, 400);
+    });
+    text.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Escape") text.blur();
+    });
+    const head = h("div", { class: "sl-note-head" },
+      h("button", { class: "sl-note-color", title: "Change color", onclick: () => {
+        n.color = NOTE_COLORS[(NOTE_COLORS.indexOf(n.color) + 1) % NOTE_COLORS.length];
+        save();
+        renderBoard();
+      } }),
+      h("span", { class: "sl-note-time", text: r.label, title: `Expires ${new Date(n.expires).toLocaleString()}` }),
+      h("button", { class: "sl-note-btn", title: "Keep for 7 more days", onclick: () => { n.expires = Date.now() + NOTE_LIFETIME; save(); renderBoard(); } }, icon("clock")),
+      h("button", { class: "sl-note-btn", title: "Delete", onclick: () => { b.notes.splice(b.notes.indexOf(n), 1); save(); renderBoard(); } }, icon("x")));
+    // Drag the note by its header.
+    head.addEventListener("pointerdown", e => {
+      if (e.target.closest("button")) return;
+      e.preventDefault();
+      head.setPointerCapture(e.pointerId);
+      const z = b.view.z, sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+      const el = head.parentNode;
+      el.classList.add("dragging");
+      const move = ev => {
+        n.x = Math.round(ox + (ev.clientX - sx) / z);
+        n.y = Math.round(oy + (ev.clientY - sy) / z);
+        el.style.left = n.x + "px";
+        el.style.top = n.y + "px";
+      };
+      const up = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", up);
+        el.classList.remove("dragging");
+        // Bring to front.
+        b.notes.splice(b.notes.indexOf(n), 1);
+        b.notes.push(n);
+        save();
+        renderBoard();
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", up);
+    });
+    const el = h("div", { class: `sl-note sl-note-${n.color}${r.ms < 86400e3 ? " expiring" : ""}`, "data-note": n.id, style: `left:${n.x}px;top:${n.y}px` },
+      head, text,
+      h("div", { class: "sl-note-life" }, h("div", { class: "sl-note-life-bar", style: `width:${(r.ratio * 100).toFixed(2)}%` })));
+    setTimeout(grow, 0);
+    return el;
+  }
+
+  function renderBoard() {
+    if (!boardOpen) return;
+    purgeNotes();
+    const ws = curWs(), b = board(ws);
+    const box = $("#tabbrowser-tabbox").getBoundingClientRect();
+    for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) boardWrap.style.setProperty(`--bd-${k}`, v + "px");
+    boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name} — Board`;
+    const focused = doc.activeElement?.closest?.(".sl-note")?.dataset.note;
+    boardWorld.replaceChildren(...b.notes.map(noteEl));
+    if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
+    boardWrap.apply();
+    boardWrap.classList.toggle("empty", !b.notes.length);
+  }
+
+  /* Refreshes countdowns without rebuilding (keeps typing undisturbed). */
+  function tickBoard() {
+    if (purgeNotes()) return renderBoard();
+    for (const n of board().notes) {
+      const el = boardWorld.querySelector(`[data-note="${n.id}"]`);
+      if (!el) continue;
+      const r = remaining(n);
+      el.querySelector(".sl-note-time").textContent = r.label;
+      el.querySelector(".sl-note-life-bar").style.width = `${(r.ratio * 100).toFixed(2)}%`;
+      el.classList.toggle("expiring", r.ms < 86400e3);
+    }
+  }
+
+  function openBoard() {
+    if (little) return;
+    endPeek();
+    closePalette();
+    boardOpen = true;
+    boardWrap.hidden = false;
+    renderBoard();
+    clearInterval(boardTimer);
+    boardTimer = setInterval(tickBoard, 60e3);
+    render();
+  }
+
+  function closeBoard() {
+    if (!boardOpen) return;
+    boardOpen = false;
+    boardWrap.hidden = true;
+    clearInterval(boardTimer);
+    gBrowser.selectedBrowser.focus();
+    render();
+  }
+
+  function toggleBoard() { boardOpen ? closeBoard() : openBoard(); }
+
   /* ---------- keyboard shortcuts ---------- */
 
   const SHORTCUTS = [
@@ -1686,16 +2046,22 @@
 
     buildUi();
     installShortcuts();
+    hookExternalLinks();
+    if (shared.littleWindows.has(window)) enterLittle();
+    window.addEventListener("resize", () => { if (boardOpen) renderBoard(); });
 
     const tc = gBrowser.tabContainer;
     tc.addEventListener("TabOpen", e => {
       const t = e.target;
+      if (little) return render();
       if (!getVal(t, WS_KEY) && !tabItemId(t)) setVal(t, WS_KEY, activeWs);
       containerCheck.add(t);
       render();
     });
     tc.addEventListener("TabSelect", () => {
       const t = gBrowser.selectedTab;
+      if (little) return render();
+      if (boardOpen && !switching) closeBoard();
       if (!switching && !inView(t)) {
         const w = tabWs(t);
         if (wsById(w)) switchWs(w, { tab: t });
@@ -1707,12 +2073,14 @@
     });
     tc.addEventListener("TabClose", e => {
       const t = e.target;
+      // Little windows close with their last tab.
+      if (little) { if (!gBrowser.tabs.some(x => x !== t && alive(x))) setTimeout(() => window.close(), 0); return; }
       if (!t.selected) return;
       const others = gBrowser.tabs.some(x => x !== t && alive(x) && inView(x));
       if (!others) setVal(addTab("about:blank", curProf().userContextId), WS_KEY, activeWs);
     });
     for (const ev of ["TabClose", "TabAttrModified", "TabMove", "TabShow", "TabHide", "TabPinned", "TabUnpinned"]) tc.addEventListener(ev, render);
-    tc.addEventListener("SSTabRestoring", () => { applyVisibility(); render(); });
+    tc.addEventListener("SSTabRestoring", () => { if (!little) applyVisibility(); render(); });
     gBrowser.addTabsProgressListener({
       onLocationChange(browser, webProgress, request, location) {
         if (!webProgress.isTopLevel) return;
@@ -1732,6 +2100,10 @@
     });
 
     await SessionStore.promiseAllWindowsRestored;
+    // A Little Sillage window restored from the previous session.
+    if (!little && SessionStore.getCustomWindowValue(window, "sillage-little")) enterLittle();
+    if (little) { log("Little Sillage window ready"); return; }
+    purgeNotes();
     for (const t of gBrowser.tabs) if (alive(t) && !tabWs(t)) setVal(t, WS_KEY, activeWs);
     // Firefox's native pinned tabs cannot be hidden, so unpin them.
     for (const t of [...gBrowser.tabs]) if (t.pinned) gBrowser.unpinTab(t);
@@ -1753,7 +2125,9 @@
   }
 
   window.Sillage = {
-    render, switchWs, openPalette, toast,
+    render, switchWs, openPalette, toast, adoptIntoWorkspace,
+    get isLittle() { return little; },
+    get activeWorkspace() { return curWs(); },
     // Internals exposed for the automated tests (chrome/debug.js in the test profile).
     _t: {
       get D() { return D; }, get activeWs() { return activeWs; }, get palResults() { return palResults; },
@@ -1763,6 +2137,8 @@
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
+      openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
+      openLittle, moveToMain, enterLittle,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);

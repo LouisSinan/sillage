@@ -5,6 +5,9 @@ GRE_DIR="$APP/Contents/Resources"
 PROFILE="$HOME/Library/Application Support/Sillage/Profile"
 FF_URL="https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=$LOCALE"
 BUNDLE_ID="io.github.louissinan.sillage"
+# Same policies as Linux, plus DisableAppUpdate: a modified bundle cannot update itself;
+# `make update` does it instead (Sillage shows a notice when a new Firefox release is out).
+POLICIES="$ROOT/firefox/policies-macos.json"
 
 extract_firefox() {
   hdiutil attach -nobrowse -quiet -mountpoint "$2/mnt" "$1"
@@ -17,11 +20,6 @@ extract_firefox() {
 }
 
 register_app() {
-  # A modified Firefox bundle cannot update itself: `make update` does it instead
-  # (Sillage shows a notice when a new Firefox release is out).
-  mkdir -p "$GRE_DIR/distribution"
-  cp "$ROOT/firefox/policies.json" "$GRE_DIR/distribution/policies.json"
-
   local work iconset s
   work="$(mktemp -d)"
   iconset="$work/sillage.iconset"

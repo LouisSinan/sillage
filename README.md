@@ -24,10 +24,17 @@ Firefox.
   suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match.
 - **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling with page
   thumbnails; the tab opens when the keys are released.
+- **Board**: each workspace has an infinite canvas of sticky notes. Notes last 7 days, with a countdown
+  and a shrinking lifetime bar, and can be renewed. Open it from the sidebar or the palette.
+- **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
+  "Open in…" moves the tab into the workspace of your choice. Can be turned off from the palette.
 - **Pinned tabs** that keep their home URL; closing a pinned tab unloads it instead of removing it.
 - **Auto-archiving** of today tabs that have not been viewed for a while (12 hours to 7 days, or never).
 - **Drag and drop** to reorder, pin, file into folders or move tabs to another workspace.
 - **Imports** from Chromium-based browsers (passwords, history, bookmarks), or Chromium bookmarks as pinned items.
+- **Sensible defaults**: cookie consent banners are refused automatically by
+  [Consent-O-Matic](https://addons.mozilla.org/firefox/addon/consent-o-matic/) (installed through Firefox
+  policies; it can be disabled in `about:addons`), and videos switch to Picture-in-Picture when you leave their tab.
 
 ## Requirements
 
@@ -98,7 +105,7 @@ in that case, and `make test` shows what needs attention.
 
 ```
 Makefile          install | launch | default | update | test | uninstall
-firefox/          copied into Firefox: autoconfig loader and preference, macOS policy
+firefox/          copied into Firefox: autoconfig loader and preference, enterprise policies
 profile/chrome/   the interface (sillage.uc.js, sillage.css), linked into the profile
 profile/user.js   profile preferences
 scripts/          one script per command; common.sh + platform/<linux|macos>.sh
@@ -112,7 +119,7 @@ The interface reloads with Sillage: edit `profile/chrome/`, then restart it. Log
 
 ## Data
 
-Workspaces, pinned items and favorites are stored in `sillage.json`, and palette history in
+Workspaces, pinned items, favorites and boards are stored in `sillage.json`, and palette history in
 `sillage-history.json`, both in the profile directory. Everything stays on your machine; Sillage
 makes no network requests of its own beyond search suggestions from your default search engine
 (when enabled in Firefox) and, on macOS, a daily check for new Firefox releases.

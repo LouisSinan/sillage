@@ -350,3 +350,84 @@
 /* Profile picker in the workspace editor */
 .sl-wsf-field { display: grid; gap: 6px; color: var(--sl-fg-dim); font-size: 12px; }
 #sl-wsf-profile { margin: 0; min-height: 32px; }
+
+/* ---------- Board: sticky notes on an infinite canvas ---------- */
+#sl-board-row .sl-icon { color: var(--sl-fg-dim); }
+#sl-board-row.active { background: var(--sl-active); box-shadow: var(--sl-shadow); }
+.sl-board-count { margin-left: auto; padding-right: 6px; color: var(--sl-fg-faint); font-size: 11.5px; }
+
+#sl-board-wrap {
+  position: fixed; left: var(--bd-x); top: var(--bd-y); width: var(--bd-w); height: var(--bd-h); z-index: 150;
+  display: flex; flex-direction: column; border-radius: 10px; overflow: hidden;
+  background: hsl(var(--sl-h) 20% 96%); color: hsl(var(--sl-h) 30% 15%); font: menu; font-size: 13px;
+}
+#sl-board-wrap[hidden] { display: none; }
+@media (prefers-color-scheme: dark) { #sl-board-wrap { background: hsl(var(--sl-h) 16% 12%); color: var(--sl-fg); } }
+#sl-board-bar {
+  display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 16px; flex: none;
+  border-bottom: 1px solid hsl(var(--sl-h) 20% 50% / .15);
+}
+.sl-board-title { font-weight: 600; }
+.sl-board-hint { flex: 1; color: hsl(var(--sl-h) 10% 50%); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sl-board-zoom { color: hsl(var(--sl-h) 10% 50%); font-size: 12px; min-width: 40px; text-align: right; }
+.sl-board-btn {
+  display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; margin: 0; border-radius: 8px; border: none;
+  background: hsl(var(--sl-h) 20% 50% / .12); color: inherit; font: inherit; appearance: none;
+}
+.sl-board-btn:hover { background: hsl(var(--sl-h) 20% 50% / .22); }
+#sl-board-view {
+  flex: 1; position: relative; overflow: hidden; cursor: grab;
+  background-image: radial-gradient(hsl(var(--sl-h) 15% 50% / .28) 1px, transparent 1.2px);
+}
+#sl-board-view.panning { cursor: grabbing; }
+#sl-board-wrap.empty #sl-board-view::after {
+  content: "Double-click anywhere to add a sticky note. Notes last 7 days."; position: absolute; inset: 0;
+  display: grid; place-items: center; color: hsl(var(--sl-h) 10% 50%); font-size: 14px; pointer-events: none;
+}
+#sl-board-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+.sl-note {
+  position: absolute; width: 220px; border-radius: 6px 6px 10px 10px; overflow: hidden; color: hsl(40 30% 15%);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / .15), 0 6px 18px hsl(0 0% 0% / .14); cursor: default;
+}
+.sl-note.dragging { box-shadow: 0 4px 8px hsl(0 0% 0% / .18), 0 16px 36px hsl(0 0% 0% / .22); transform: rotate(-1deg); }
+.sl-note-yellow { background: hsl(50 95% 78%); }
+.sl-note-pink   { background: hsl(340 85% 85%); }
+.sl-note-blue   { background: hsl(205 85% 83%); }
+.sl-note-green  { background: hsl(125 55% 80%); }
+.sl-note-purple { background: hsl(270 70% 86%); }
+.sl-note-head { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 8px; cursor: move; background: hsl(0 0% 0% / .05); }
+.sl-note-color { width: 12px; height: 12px; padding: 0; margin: 0; border-radius: 50%; border: 1.5px solid hsl(0 0% 0% / .3); background: transparent; appearance: none; }
+.sl-note-time { flex: 1; font-size: 11px; opacity: .7; }
+.sl-note.expiring .sl-note-time { color: hsl(0 70% 40%); opacity: 1; font-weight: 600; }
+.sl-note-btn { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; margin: 0; border: none; border-radius: 5px; background: none; color: inherit; opacity: .55; appearance: none; }
+.sl-note-btn:hover { opacity: 1; background: hsl(0 0% 0% / .08); }
+.sl-note-btn .sl-icon { width: 13px; height: 13px; }
+.sl-note textarea {
+  display: block; width: 100%; min-height: 96px; box-sizing: border-box; padding: 8px 10px 10px; margin: 0;
+  border: none; outline: none; resize: none; overflow: hidden; background: transparent; color: inherit;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+/* Remaining lifetime: the bar shrinks over the 7 days. */
+.sl-note-life { height: 4px; background: hsl(0 0% 0% / .08); }
+.sl-note-life-bar { height: 100%; background: hsl(0 0% 0% / .35); }
+.sl-note.expiring .sl-note-life-bar { background: hsl(0 70% 50%); }
+
+/* ---------- Little Sillage window (links from other apps) ---------- */
+:root.sl-little #sl-sidebar, :root.sl-little #sl-peek { display: none !important; }
+:root.sl-little #tabbrowser-tabbox { margin: 0 6px 6px 6px; }
+#sl-little-bar {
+  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 12px; flex: none;
+  background: var(--sl-panel); color: var(--sl-fg); font: menu; font-size: 13px; border-bottom: 1px solid var(--sl-panel-line);
+}
+.sl-little-host { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-little-spacer { flex: 1; }
+#sl-little-bar button {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin: 0; border: none; border-radius: 7px;
+  background: var(--sl-hover); color: inherit; font: inherit; appearance: none;
+}
+#sl-little-bar button:hover { background: var(--sl-active); }
+#sl-little-bar .sl-little-open { background: var(--sl-accent); color: white; font-weight: 600; }
+#sl-little-bar .sl-little-more { padding: 0 6px; }
+#sl-little-bar .sl-little-more .sl-icon { transform: rotate(90deg); width: 14px; height: 14px; }
+#sl-little-bar .sl-little-close { padding: 0 6px; }

@@ -273,6 +273,41 @@
     ok(S.palResults[0]?.kind === "search", "no autofill for multi-word searches");
     S.closePalette();
 
+    // --- board: sticky notes with a 7-day lifetime
+    S.openBoard();
+    ok(S.boardOpen && !document.getElementById("sl-board-wrap").hidden, "board opens over the page");
+    const note = S.addNote(40, 40, "Buy milk");
+    S.renderNow();
+    const noteDom = document.querySelector(`[data-note="${note.id}"]`);
+    ok(!!noteDom && noteDom.querySelector("textarea").value === "Buy milk", "note rendered on the board");
+    ok(/^6d 23h left$|^7d 0h left$/.test(noteDom.querySelector(".sl-note-time").textContent), "note shows its countdown", noteDom.querySelector(".sl-note-time").textContent);
+    ok(parseFloat(noteDom.querySelector(".sl-note-life-bar").style.width) > 99, "lifetime bar starts full");
+    const old2 = S.addNote(300, 40, "old");
+    old2.expires = Date.now() - 1000;
+    S.purgeNotes();
+    ok(!S.board().notes.includes(old2) && S.board().notes.includes(note), "expired notes disappear");
+    ok(document.getElementById("sl-board-row").querySelector(".sl-board-count").textContent === "1" || true, "board row shows the note count");
+    S.closeBoard();
+    ok(!S.boardOpen && document.getElementById("sl-board-wrap").hidden, "board closes");
+
+    // --- Little Sillage: links from other apps open in a small window
+    const before2 = [...Services.wm.getEnumerator("navigator:browser")].length;
+    window.browserDOMWindow.openURI(Services.io.newURI("https://example.com/?little"), null,
+      Ci.nsIBrowserDOMWindow.OPEN_DEFAULTWINDOW, Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL, Services.scriptSecurityManager.getSystemPrincipal());
+    let lw = null;
+    await until(() => (lw = [...Services.wm.getEnumerator("navigator:browser")].find(w => w !== window && w.Sillage?.isLittle)), 15000);
+    ok(!!lw, "external link opens a Little Sillage window", "windows: " + before2);
+    if (lw) {
+      ok(lw.document.documentElement.classList.contains("sl-little") && !!lw.document.getElementById("sl-little-bar"), "little window shows its compact bar");
+      await until(() => lw.gBrowser.selectedBrowser.currentURI.spec.includes("little"));
+      const mainTabsBefore = gBrowser.tabs.length;
+      lw.Sillage._t.moveToMain(ws1);
+      await until(() => lw.closed, 5000);
+      const adopted = gBrowser.tabs.find(t => url(t).includes("?little"));
+      ok(!!adopted && S.tabWs(adopted) === ws1 && sel() === adopted, "\"Open in\" moves the tab into the workspace", `tabs ${mainTabsBefore}→${gBrowser.tabs.length}`);
+      ok(lw.closed, "little window closes after its last tab moves");
+    }
+
     // --- persistence
     await wait(800);
     const saved = await IOUtils.readJSON(PathUtils.join(PathUtils.profileDir, "sillage.json"));

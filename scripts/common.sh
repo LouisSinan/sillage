@@ -11,7 +11,7 @@ esac
 # Firefox build language (any Mozilla locale code, e.g. en-US, de, ja).
 LOCALE="${SILLAGE_LOCALE:-en-US}"
 
-# Defines FF_BIN, GRE_DIR (where the loader goes), PROFILE, FF_URL and the functions
+# Defines FF_BIN, GRE_DIR (where the loader goes), PROFILE, FF_URL, POLICIES and the functions
 # extract_firefox, register_app, launch_app, set_default, unregister_app.
 source "$ROOT/scripts/platform/$PLATFORM.sh"
 
@@ -25,16 +25,18 @@ download_firefox() {
   rm -rf "$tmp"
 }
 
-# Copies the Sillage loader into Firefox (a Firefox update may remove it).
+# Copies the Sillage loader and enterprise policies into Firefox (a Firefox update may remove them).
 install_loader() {
   cp "$ROOT/firefox/config.js" "$GRE_DIR/config.js"
-  mkdir -p "$GRE_DIR/defaults/pref"
+  mkdir -p "$GRE_DIR/defaults/pref" "$GRE_DIR/distribution"
   cp "$ROOT/firefox/defaults/pref/sillage-prefs.js" "$GRE_DIR/defaults/pref/sillage-prefs.js"
+  cp "$POLICIES" "$GRE_DIR/distribution/policies.json"
 }
 
 loader_up_to_date() {
   cmp -s "$ROOT/firefox/config.js" "$GRE_DIR/config.js" &&
-    cmp -s "$ROOT/firefox/defaults/pref/sillage-prefs.js" "$GRE_DIR/defaults/pref/sillage-prefs.js"
+    cmp -s "$ROOT/firefox/defaults/pref/sillage-prefs.js" "$GRE_DIR/defaults/pref/sillage-prefs.js" &&
+    cmp -s "$POLICIES" "$GRE_DIR/distribution/policies.json"
 }
 
 # The profile links back to the repository: editing profile/chrome changes the interface.

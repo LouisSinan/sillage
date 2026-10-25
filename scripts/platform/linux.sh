@@ -4,6 +4,7 @@ FF_BIN="$FF_DIR/firefox"
 GRE_DIR="$FF_DIR"
 PROFILE="$HOME/.local/share/sillage/profile"
 FF_URL="https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=$LOCALE"
+POLICIES="$ROOT/firefox/policies.json"
 DESKTOP="$HOME/.local/share/applications/sillage.desktop"
 ICON="$HOME/.local/share/icons/hicolor/scalable/apps/sillage.svg"
 
