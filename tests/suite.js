@@ -116,6 +116,15 @@
     window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control", bubbles: true }));
     ok(S.activeWs === ws2 && sel() === c, "recent tabs work across workspaces");
     S.switchWs(ws1);
+    const wsKey = code => [...document.querySelectorAll("#sillage-keyset key")].find(k => k.getAttribute("keycode") === code);
+    ok(wsKey("VK_RIGHT")?.getAttribute("modifiers") === "control" && !wsKey("VK_RIGHT").hasAttribute("reserved"), "Ctrl+→ shortcut installed (not reserved, text fields keep word jumps)");
+    wsKey("VK_RIGHT").doCommand();
+    ok(S.activeWs === ws2, "Ctrl+→ switches to the next workspace");
+    wsKey("VK_RIGHT").doCommand();
+    ok(S.activeWs === ws2, "Ctrl+→ on the last workspace stays there");
+    wsKey("VK_LEFT").doCommand();
+    ok(S.activeWs === ws1, "Ctrl+← switches to the previous workspace");
+    ok(!!xulKey("accel", "B"), "Ctrl+B toggles the sidebar too");
 
     // --- moving a tab to another workspace
     const d = S.newTab("https://example.com/?d");
@@ -148,11 +157,23 @@
     ok(native?.getAttribute("disabled") === "true", "native Ctrl+S (save page) disabled");
 
     // --- sidebar
-    const vis = S.D.settings.sidebarVisible;
+    const vis = S.sidebarVisible;
     S.runCommand("toggle-sidebar");
-    ok(S.D.settings.sidebarVisible === !vis && document.documentElement.classList.contains("sl-hidden"), "Ctrl+S hides the sidebar");
+    ok(S.sidebarVisible === !vis && document.documentElement.classList.contains("sl-hidden"), "Ctrl+S hides the sidebar");
     S.runCommand("toggle-sidebar");
     ok(!document.documentElement.classList.contains("sl-hidden"), "Ctrl+S shows it again");
+
+    // --- the sidebar toggle only affects the active window
+    const win2 = OpenBrowserWindow();
+    await until(() => win2.Sillage?._t?.D, 15000);
+    await wait(500);
+    ok(!!win2.Sillage, "second window gets the Sillage interface");
+    S.runCommand("toggle-sidebar");
+    await wait(300);
+    ok(document.documentElement.classList.contains("sl-hidden") && !win2.document.documentElement.classList.contains("sl-hidden"), "hiding the sidebar leaves other windows unchanged");
+    S.runCommand("toggle-sidebar");
+    win2.close();
+    await wait(300);
 
     // --- last tab of a workspace
     S.switchWs(ws2);

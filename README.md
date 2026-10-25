@@ -14,10 +14,10 @@ Firefox.
 
 ## Features
 
-- **Sidebar** with favorites, pinned tabs, folders and today tabs. Toggle it with <kbd>Ctrl</kbd>+<kbd>S</kbd>;
-  when hidden, hover the left edge of the window to peek at it.
-- **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
-  a horizontal swipe on the sidebar, or the palette.
+- **Sidebar** with favorites, pinned tabs, folders and today tabs. Toggle it per window with
+  <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it.
+- **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd>,
+  <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar, or the palette.
 - **Profiles.** Each workspace is assigned a profile backed by a Firefox container: separate cookies and
   sessions (for example two Google accounts side by side), plus separate palette history and favorites.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
@@ -64,16 +64,18 @@ Firefox is downloaded in US English. Set `SILLAGE_LOCALE` to use another languag
 
 ## Keyboard shortcuts
 
-On macOS, <kbd>Ctrl</kbd> becomes <kbd>⌘</kbd>, except for workspace switching (<kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, as in Arc).
+On macOS, <kbd>Ctrl</kbd> becomes <kbd>⌘</kbd>, except for <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>; previous / next
+workspace is <kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>←</kbd> / <kbd>→</kbd>, as in Arc.
 
 | Shortcut | Action |
 |---|---|
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> | Toggle the sidebar |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd> | Toggle the sidebar in the current window |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | Open the command palette |
 | <kbd>Ctrl</kbd>+<kbd>L</kbd> | Open the palette on the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> | Recent tabs: go further back (hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd>, release to open, <kbd>Esc</kbd> to cancel) |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> | Recent tabs: move back towards the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> | Previous / next entry in the sidebar |
+| <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd> | Previous / next workspace (in text fields, moves by word as usual) |
 | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to workspace *n* (physical key, works with any keyboard layout) |
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | Pin / unpin the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Add / remove the current tab from favorites |

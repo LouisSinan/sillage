@@ -128,6 +128,7 @@
 
   let D; // persistent data
   let activeWs; // active workspace of THIS window
+  let sidebarVisible = true; // per window; the last choice is the default for new windows
 
   const wsById = id => D.workspaces.find(w => w.id === id);
   const curWs = () => wsById(activeWs) || D.workspaces[0];
@@ -274,6 +275,13 @@
     save();
     render();
     if (created && !cycling) openPalette("current");
+  }
+
+  /* Previous / next workspace (no wrap-around). */
+  function stepWs(dir) {
+    const i = D.workspaces.findIndex(w => w.id === activeWs);
+    const next = D.workspaces[i + dir];
+    if (next) switchWs(next.id);
   }
 
   function selectTab(t) {
@@ -727,7 +735,7 @@
     const ws = curWs(), prof = curProf();
     doc.documentElement.style.setProperty("--sl-h", ws.hue);
     doc.documentElement.style.setProperty("--sl-w", D.settings.sidebarWidth + "px");
-    doc.documentElement.classList.toggle("sl-hidden", !D.settings.sidebarVisible);
+    doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
 
     favBox.replaceChildren(...prof.favorites.map((it, i) => {
       const t = tabForItem(it.id);
@@ -783,8 +791,9 @@
   }
 
   function toggleSidebar() {
-    D.settings.sidebarVisible = !D.settings.sidebarVisible;
-    doc.documentElement.classList.toggle("sl-hidden", !D.settings.sidebarVisible);
+    sidebarVisible = !sidebarVisible;
+    D.settings.sidebarVisible = sidebarVisible;
+    doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
     endPeek();
     save();
     render();
@@ -845,11 +854,10 @@
       if (Date.now() < lockUntil) return;
       acc += e.deltaX;
       if (Math.abs(acc) < 120) return;
-      const i = D.workspaces.findIndex(w => w.id === activeWs);
-      const next = D.workspaces[i + Math.sign(acc)];
+      const dir = Math.sign(acc);
       acc = 0;
       lockUntil = Date.now() + 450;
-      if (next) switchWs(next.id);
+      stepWs(dir);
     }, { passive: false });
 
     wireDnd();
@@ -1215,7 +1223,7 @@
         toast(`Profile “${p.name}” created — assign it to a workspace`);
         return openWsEditor(null, p.id);
       }
-      case "new-folder": { const f = createFolder(); if (!D.settings.sidebarVisible) toggleSidebar(); return renameFolderSoon(f.id); }
+      case "new-folder": { const f = createFolder(); if (!sidebarVisible) toggleSidebar(); return renameFolderSoon(f.id); }
       case "toggle-sidebar": return toggleSidebar();
       case "copy-url": return copyUrl();
       case "clear-today": return clearToday();
@@ -1533,6 +1541,11 @@
 
   const SHORTCUTS = [
     { mod: "accel", key: "S", fn: toggleSidebar, reserved: true },
+    { mod: "accel", key: "B", fn: toggleSidebar, reserved: true },
+    // Previous / next workspace. Not reserved: in text fields Ctrl+arrows keep moving by word.
+    // macOS uses ⌘⌥ + arrows (as Arc does), since Ctrl + arrows switches desktops there.
+    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_LEFT", fn: () => stepWs(-1) },
+    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_RIGHT", fn: () => stepWs(1) },
     { mod: "accel", key: "T", fn: () => openPalette("new"), reserved: true },
     { mod: "accel", key: "L", fn: () => openPalette("current"), reserved: true },
     { mod: "accel", key: "D", fn: () => togglePin(gBrowser.selectedTab) },
@@ -1565,7 +1578,8 @@
     for (const s of SHORTCUTS) {
       const k = doc.createXULElement("key");
       k.setAttribute("modifiers", s.mod);
-      k.setAttribute("key", s.key);
+      if (s.key) k.setAttribute("key", s.key);
+      if (s.keycode) k.setAttribute("keycode", s.keycode);
       if (s.reserved) k.setAttribute("reserved", "true");
       // A <key> needs a command to be active: empty oncommand plus an event listener.
       k.setAttribute("oncommand", "void 0;");
@@ -1647,6 +1661,7 @@
     shared.windows.add(window);
     window.addEventListener("unload", () => shared.windows.delete(window));
     activeWs = wsById(D.lastWs) ? D.lastWs : D.workspaces[0].id;
+    sidebarVisible = D.settings.sidebarVisible;
 
     buildUi();
     installShortcuts();
@@ -1725,7 +1740,8 @@
       renderNow, newTab, openItem, moveTab, moveItem, moveFolder, togglePin, toggleFavorite, deleteItem, createFolder,
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
-      deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; },
+      deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
+      get sidebarVisible() { return sidebarVisible; },
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);
