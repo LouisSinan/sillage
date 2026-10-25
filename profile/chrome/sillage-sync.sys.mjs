@@ -284,12 +284,20 @@ export async function init(sharedState) {
     if (!manager.get("sillage")) await manager.register(SillageEngine);
     engineRef = manager.get("sillage");
     if (engineRef && !engineRef.enabled) engineRef.enabled = true;
-    // Upload the current state on the next sync.
+    // Upload the current state soon: Sync may otherwise wait up to an hour with a single device.
     changed();
+    try { Weave.Service.scheduler.scheduleNextSync(10_000); } catch {}
   } catch (e) {
     console.error("Sillage sync:", e);
   }
   return engineRef;
+}
+
+/* Palette "Sync now". */
+export async function syncNow() {
+  const { Weave } = ChromeUtils.importESModule("resource://services-sync/main.sys.mjs");
+  changed();
+  await Weave.Service.sync();
 }
 
 export const _test = { STATE_ID, SillageEngine };

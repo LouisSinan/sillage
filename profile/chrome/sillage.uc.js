@@ -1225,6 +1225,7 @@
     { cmd: "new-folder", title: "New folder", kw: "pinned bookmarks" },
     { cmd: "toggle-sidebar", title: "Toggle sidebar", kw: "show hide" },
     { cmd: "board", title: "Board", kw: "notes sticky post-it canvas" },
+    { cmd: "sync-now", title: "Sync now", kw: "firefox account synchronize" },
     { cmd: "new-note", title: "New sticky note", kw: "board post-it" },
     { cmd: "little-on", title: "Open links from other apps in a Little Sillage window", kw: "external little arc" },
     { cmd: "little-off", title: "Open links from other apps in the current workspace", kw: "external little arc" },
@@ -1273,6 +1274,9 @@
       case "new-folder": { const f = createFolder(); if (!sidebarVisible) toggleSidebar(); return renameFolderSoon(f.id); }
       case "toggle-sidebar": return toggleSidebar();
       case "board": return openBoard();
+      case "sync-now":
+        toast("Syncing…");
+        return SillageSync.syncNow().then(() => toast("Synced"), e => { log("sync now " + e); toast("Sync failed — are you signed in to Firefox Sync?"); });
       case "new-note": { openBoard(); return addNote(); }
       case "little-on": case "little-off":
         D.settings.littleWindow = cmd === "little-on";
