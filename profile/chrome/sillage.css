@@ -229,31 +229,18 @@
 #sl-sidebar:hover .sl-clear { opacity: 1; }
 .sl-clear:hover { background: var(--sl-hover); color: var(--sl-fg); }
 
-/* Candy orb: glossy gradient in the workspace color, soft glow, springy hover. */
+/* Sillage orb: the logo itself (violet to pink gradient, white waves), in a circle. */
 #sl-orb {
-  position: relative; flex: none; width: 32px; height: 32px; margin: 0 10px; padding: 0; border: none; border-radius: 50%;
+  position: relative; flex: none; width: 30px; height: 30px; margin: 0 10px; padding: 0; border: none; border-radius: 50%;
   display: grid; place-items: center; appearance: none; cursor: pointer;
-  background:
-    radial-gradient(circle at 30% 24%, hsl(0 0% 100% / .85) 0 12%, hsl(0 0% 100% / 0) 42%),
-    radial-gradient(circle at 70% 85%, hsl(calc(var(--sl-h) + 70) 95% 75% / .7), transparent 55%),
-    linear-gradient(150deg, hsl(calc(var(--sl-h) + 5) 92% 70%), hsl(calc(var(--sl-h) + 55) 88% 62%));
-  box-shadow:
-    0 0 0 2px hsl(0 0% 100% / .6),
-    0 4px 12px hsl(calc(var(--sl-h) + 30) 85% 50% / .45),
-    inset 0 -3px 6px hsl(var(--sl-h) 70% 30% / .3),
-    inset 0 2px 2px hsl(0 0% 100% / .5);
-  transition: transform .35s cubic-bezier(.34, 1.56, .64, 1), box-shadow .2s;
+  background: linear-gradient(135deg, #8b7cf6, #ec6fa8);
+  box-shadow: 0 1px 3px hsl(280 50% 30% / .35);
+  transition: transform .2s ease, box-shadow .2s;
 }
-#sl-orb img { width: 18px; height: 18px; pointer-events: none; filter: drop-shadow(0 1px 1px hsl(var(--sl-h) 60% 25% / .45)); }
-#sl-orb:hover { transform: scale(1.15) rotate(-8deg); }
-#sl-orb:active { transform: scale(.9); transition-duration: .1s; }
-#sl-orb.active {
-  box-shadow:
-    0 0 0 2px hsl(0 0% 100% / .95),
-    0 0 0 5px hsl(calc(var(--sl-h) + 30) 90% 65% / .55),
-    0 4px 14px hsl(calc(var(--sl-h) + 30) 85% 50% / .5),
-    inset 0 -3px 6px hsl(var(--sl-h) 70% 30% / .3);
-}
+#sl-orb img { width: 21px; height: 21px; pointer-events: none; }
+#sl-orb:hover { transform: scale(1.1); box-shadow: 0 2px 8px hsl(300 60% 40% / .4); }
+#sl-orb:active { transform: scale(.94); }
+#sl-orb.active { box-shadow: 0 0 0 2px var(--sl-bg1), 0 0 0 4px #b977d0; }
 .sl-orb-count {
   position: absolute; top: -5px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
   display: grid; place-items: center; border-radius: 8px; background: white; color: hsl(var(--sl-h) 60% 40%);
@@ -407,10 +394,7 @@
 .sl-board-title { font-weight: 600; }
 .sl-orb-mini {
   width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none;
-  background:
-    radial-gradient(circle at 30% 24%, hsl(0 0% 100% / .85) 0 12%, hsl(0 0% 100% / 0) 42%),
-    linear-gradient(150deg, hsl(calc(var(--sl-h) + 5) 92% 70%), hsl(calc(var(--sl-h) + 55) 88% 62%));
-  box-shadow: 0 2px 6px hsl(calc(var(--sl-h) + 30) 85% 50% / .4), inset 0 -2px 4px hsl(var(--sl-h) 70% 30% / .3);
+  background: linear-gradient(135deg, #8b7cf6, #ec6fa8);
 }
 .sl-orb-mini img { width: 13px; height: 13px; }
 #sl-board-wrap.sl-nudge { animation: sl-nudge .35s; }

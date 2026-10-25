@@ -272,13 +272,20 @@ export async function init(sharedState) {
   if (shared) return engineRef;
   shared = sharedState;
   initStamps(shared.data);
-  Services.prefs.setBoolPref("services.sync.engine.sillage", Services.prefs.getBoolPref("services.sync.engine.sillage", true));
+  // Enable the engine as if the user had ticked it in the Sync settings. Without "engineStatusChanged",
+  // Sync sees an engine enabled locally but missing from the server's engine list, concludes another
+  // device disabled it, and turns it off before anything is uploaded.
+  Services.prefs.setBoolPref("services.sync.engine.sillage", true);
+  Services.prefs.setBoolPref("services.sync.engineStatusChanged.sillage", true);
   try {
     const { Weave } = ChromeUtils.importESModule("resource://services-sync/main.sys.mjs");
     await Weave.Service.whenLoaded?.();
     const manager = Weave.Service.engineManager;
     if (!manager.get("sillage")) await manager.register(SillageEngine);
     engineRef = manager.get("sillage");
+    if (engineRef && !engineRef.enabled) engineRef.enabled = true;
+    // Upload the current state on the next sync.
+    changed();
   } catch (e) {
     console.error("Sillage sync:", e);
   }

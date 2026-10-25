@@ -389,6 +389,8 @@
     await until(() => !!Weave.Service.engineManager.get("sillage"), 10000);
     const engine = Weave.Service.engineManager.get("sillage");
     ok(!!engine && engine.enabled, "Sillage engine registered with Firefox Sync");
+    ok(Services.prefs.getBoolPref("services.sync.engineStatusChanged.sillage", false),
+      "engine marked as enabled by the user, so Sync adds it to the server instead of turning it off");
     const rec = await engine._store.createRecord(Sync._test.STATE_ID, "sillage");
     ok(rec.state?.v === 1 && Object.keys(rec.state.workspaces).length >= 2, "sync record carries the workspaces");
 
