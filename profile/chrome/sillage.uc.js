@@ -1542,17 +1542,29 @@
   const SHORTCUTS = [
     { mod: "accel", key: "S", fn: toggleSidebar, reserved: true },
     { mod: "accel", key: "B", fn: toggleSidebar, reserved: true },
-    // Previous / next workspace. Not reserved: in text fields Ctrl+arrows keep moving by word.
-    // macOS uses ⌘⌥ + arrows (as Arc does), since Ctrl + arrows switches desktops there.
-    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_LEFT", fn: () => stepWs(-1) },
-    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_RIGHT", fn: () => stepWs(1) },
     { mod: "accel", key: "T", fn: () => openPalette("new"), reserved: true },
     { mod: "accel", key: "L", fn: () => openPalette("current"), reserved: true },
     { mod: "accel", key: "D", fn: () => togglePin(gBrowser.selectedTab) },
     { mod: "accel,shift", key: "D", fn: () => toggleFavorite(gBrowser.selectedTab) },
   ];
   // Handled by a direct listener (see installShortcuts), but their native equivalents must be disabled.
-  const STOLEN = [{ mod: "accel,shift", key: "C" }];
+  const STOLEN = [
+    { mod: "accel,shift", key: "C" },
+    // Previous / next workspace: Ctrl+arrows, or ⌘⌥+arrows on macOS (as Arc does), since Ctrl+arrows
+    // switches desktops there.
+    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_LEFT" },
+    { mod: IS_MAC ? "accel,alt" : "control", keycode: "VK_RIGHT" },
+  ];
+
+  /* True when the user is typing: a chrome text field, or an editable element focused in the page
+     (the content process enables IME only then). Shortcuts that clash with text editing skip it. */
+  function chromeField(t) {
+    return t?.localName === "input" || t?.localName === "textarea" || !!t?.isContentEditable || !!t?.closest?.("#urlbar");
+  }
+  function typingInField(e) {
+    if (chromeField(e.target)) return true;
+    try { return window.windowUtils.IMEStatus !== Ci.nsIDOMWindowUtils.IME_STATUS_DISABLED; } catch { return false; }
+  }
 
   function normMods(m) { return (m || "").split(/[,\s]+/).filter(Boolean).map(x => (x === "control" && !IS_MAC ? "accel" : x)).sort().join(","); }
 
@@ -1589,8 +1601,17 @@
 
     // Direct listener: more reliable for arrows and digits (physical key codes, any keyboard layout).
     window.addEventListener("keydown", e => {
-      const t = e.target;
-      const editable = t !== gBrowser.selectedBrowser && (t.localName === "input" || t.localName === "textarea" || t.isContentEditable || t.closest?.("#urlbar"));
+      // Handled here, before the page sees the key: pages consume Ctrl+arrows (word navigation)
+      // even when nothing is editable, so a regular <key> shortcut would never fire.
+      const wsMods = IS_MAC ? e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey
+                            : e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (wsMods && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !cycling) {
+        if (typingInField(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        return stepWs(e.key === "ArrowLeft" ? -1 : 1);
+      }
+      const editable = e.target !== gBrowser.selectedBrowser && chromeField(e.target);
       // Ctrl+1…9: workspace n (Ctrl on macOS too, like Arc).
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
         const m = /^Digit([1-9])$/.exec(e.code);

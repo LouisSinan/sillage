@@ -116,14 +116,22 @@
     window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control", bubbles: true }));
     ok(S.activeWs === ws2 && sel() === c, "recent tabs work across workspaces");
     S.switchWs(ws1);
-    const wsKey = code => [...document.querySelectorAll("#sillage-keyset key")].find(k => k.getAttribute("keycode") === code);
-    ok(wsKey("VK_RIGHT")?.getAttribute("modifiers") === "control" && !wsKey("VK_RIGHT").hasAttribute("reserved"), "Ctrl+→ shortcut installed (not reserved, text fields keep word jumps)");
-    wsKey("VK_RIGHT").doCommand();
+    const ctrlArrow = key => keydown({ key, code: key, ctrlKey: true });
+    ctrlArrow("ArrowRight");
     ok(S.activeWs === ws2, "Ctrl+→ switches to the next workspace");
-    wsKey("VK_RIGHT").doCommand();
+    ctrlArrow("ArrowRight");
     ok(S.activeWs === ws2, "Ctrl+→ on the last workspace stays there");
-    wsKey("VK_LEFT").doCommand();
+    ctrlArrow("ArrowLeft");
     ok(S.activeWs === ws1, "Ctrl+← switches to the previous workspace");
+    // In a focused text field of a page, Ctrl+arrows must keep moving by word.
+    const field = S.newTab("data:text/html,<input autofocus value='some words here'>");
+    await until(() => url(field).startsWith("data:"));
+    await wait(800);
+    gBrowser.selectedBrowser.focus();
+    const imeOk = await until(() => window.windowUtils.IMEStatus !== 0, 5000);
+    ctrlArrow("ArrowRight");
+    ok(S.activeWs === ws1, "Ctrl+→ inside a text field is left to the field");
+    gBrowser.removeTab(field, { animate: false });
     ok(!!xulKey("accel", "B"), "Ctrl+B toggles the sidebar too");
 
     // --- moving a tab to another workspace
@@ -197,6 +205,16 @@
     ok(getComputedStyle(document.getElementById("sl-sidebar")).display !== "none" && document.getElementById("sl-sidebar").getBoundingClientRect().top >= 0, "fullscreen: sidebar in place");
     gNavToolbox.style.marginTop = "";
     document.documentElement.removeAttribute("inFullscreen");
+
+    // --- toolbar items must not be moved to the overflow menu (Firefox measures them as one row)
+    const navTarget = document.getElementById("nav-bar-customization-target");
+    const before = [...navTarget.children].map(c => c.id).filter(id => id && !id.startsWith("customizableui-special"));
+    for (const w of [700, 1100, 800]) { window.resizeTo(w, 800); window.dispatchEvent(new Event("resize")); await wait(400); }
+    window.resizeTo(1400, 900);
+    await wait(600);
+    const overflowed = [...document.querySelectorAll("#nav-bar [overflowedItem], #widget-overflow-list > *, #unified-extensions-area > [overflowedItem]")].map(e => e.id);
+    const after = [...navTarget.children].map(c => c.id);
+    ok(!overflowed.length && before.every(id => after.includes(id)), "toolbar items stay in the sidebar (no overflow)", "overflowed: " + overflowed.join(","));
 
     // --- mouse interactions (simulated events)
     S.runCommand("toggle-sidebar");

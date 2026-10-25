@@ -129,6 +129,11 @@
 }
 :root.sillage #nav-bar { position: relative; }
 :root.sillage #nav-bar-customization-target { flex-wrap: wrap; row-gap: 6px; padding-inline-end: 72px !important; }
+/* Firefox decides whether the toolbar overflows by summing its items' widths as if they were on a single
+   row; in this wrapped layout that sum always exceeds the sidebar width, so items (pinned extensions
+   first) would be moved to the overflow menu and never come back. Its measurement skips items that are
+   not position: static/relative, and sticky without offsets lays out exactly like relative. */
+:root.sillage #nav-bar-customization-target > * { position: sticky !important; }
 /* Menu and overflow buttons top-right; the address bar takes the full width below. */
 :root.sillage #PanelUI-button { position: absolute; top: 0; right: 0; }
 :root.sillage #nav-bar-overflow-button { position: absolute; top: 0; right: 34px; }
@@ -149,7 +154,7 @@
 :root.sillage #downloads-button,
 :root.sillage #fxa-toolbar-menu-button,
 :root.sillage #unified-extensions-button { order: 101; }
-:root.sillage #unified-extensions-button { margin-inline-start: auto !important; }
+:root.sillage #unified-extensions-button { margin-inline-start: auto !important; margin-inline-end: -68px !important; }
 
 #sl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: none; }
 #sl-scroll.sl-slide-l { animation: sl-slide-l .22s ease-out; }
