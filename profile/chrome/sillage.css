@@ -1,0 +1,347 @@
+/* Sillage — interface stylesheet (loaded into the Firefox browser window). */
+
+:root.sillage {
+  --sl-h: 250;
+  --sl-w: 270px;
+  --sl-bg1: hsl(var(--sl-h) 32% 19%);
+  --sl-bg2: hsl(calc(var(--sl-h) + 45) 36% 12%);
+  --sl-fg: hsl(var(--sl-h) 25% 94%);
+  --sl-fg-dim: hsl(var(--sl-h) 14% 72%);
+  --sl-fg-faint: hsl(var(--sl-h) 10% 56%);
+  --sl-hover: hsl(0 0% 100% / .07);
+  --sl-active: hsl(0 0% 100% / .15);
+  --sl-shadow: 0 1px 2px hsl(0 0% 0% / .25);
+  --sl-line: hsl(0 0% 100% / .09);
+  --sl-panel: hsl(var(--sl-h) 20% 14% / .98);
+  --sl-panel-line: hsl(0 0% 100% / .1);
+  --sl-accent: hsl(var(--sl-h) 85% 70%);
+  --sl-input: hsl(0 0% 100% / .08);
+  /* Native Firefox colors, aligned with the workspace theme */
+  --toolbar-bgcolor: transparent !important;
+  --toolbar-color: var(--sl-fg) !important;
+  --toolbar-field-background-color: var(--sl-input) !important;
+  --toolbar-field-focus-background-color: hsl(var(--sl-h) 20% 16%) !important;
+  --toolbar-field-color: var(--sl-fg) !important;
+  --toolbar-field-focus-color: var(--sl-fg) !important;
+  --toolbar-field-border-color: transparent !important;
+  --toolbarbutton-icon-fill: var(--sl-fg-dim) !important;
+  --urlbarView-background-color: hsl(var(--sl-h) 20% 16%) !important;
+}
+@media (prefers-color-scheme: light) {
+  :root.sillage {
+    --sl-bg1: hsl(var(--sl-h) 68% 87%);
+    --sl-bg2: hsl(calc(var(--sl-h) + 45) 60% 79%);
+    --sl-fg: hsl(var(--sl-h) 35% 14%);
+    --sl-fg-dim: hsl(var(--sl-h) 18% 32%);
+    --sl-fg-faint: hsl(var(--sl-h) 12% 45%);
+    --sl-hover: hsl(0 0% 100% / .35);
+    --sl-active: hsl(0 0% 100% / .85);
+    --sl-shadow: 0 1px 3px hsl(var(--sl-h) 40% 30% / .18);
+    --sl-line: hsl(var(--sl-h) 30% 20% / .12);
+    --sl-panel: hsl(0 0% 100% / .98);
+    --sl-panel-line: hsl(var(--sl-h) 20% 20% / .1);
+    --sl-accent: hsl(var(--sl-h) 70% 50%);
+    --sl-input: hsl(0 0% 100% / .55);
+    --toolbar-field-focus-background-color: white !important;
+    --urlbarView-background-color: white !important;
+  }
+}
+
+/* ---------- Layout: gradient background, rounded page ---------- */
+:root.sillage, :root.sillage body {
+  background: radial-gradient(120% 90% at 0% 0%, var(--sl-bg1), var(--sl-bg2)) !important;
+  background-color: var(--sl-bg2) !important;
+}
+:root.sillage #browser { background: transparent !important; }
+
+:root.sillage #TabsToolbar,
+:root.sillage #toolbar-menubar,
+:root.sillage #titlebar,
+:root.sillage #sidebar-main,
+:root.sillage #sidebar-container,
+:root.sillage #sidebar-launcher-splitter,
+:root.sillage #sidebar-button,
+:root.sillage #PersonalToolbar,
+:root.sillage #nav-bar #customizableui-special-spring1,
+:root.sillage #nav-bar #customizableui-special-spring2,
+:root.sillage #nav-bar #vertical-spacer,
+:root.sillage #ipprotection-button { display: none !important; }
+
+:root.sillage #tabbrowser-tabbox {
+  margin: 6px 6px 6px 0;
+  border-radius: 10px;
+  overflow: clip;
+  box-shadow: 0 0 0 1px hsl(0 0% 0% / .12), 0 2px 12px hsl(0 0% 0% / .22);
+}
+:root.sillage.sl-hidden #tabbrowser-tabbox { margin: 0; border-radius: 0; box-shadow: none; }
+:root.sillage[inDOMFullscreen] #tabbrowser-tabbox { margin: 0; border-radius: 0; box-shadow: none; }
+
+/* ---------- Sidebar ---------- */
+#sl-sidebar {
+  width: var(--sl-w);
+  min-width: var(--sl-w);
+  display: flex;
+  flex-direction: column;
+  padding: 6px 2px 8px 8px;
+  position: relative;
+  color: var(--sl-fg);
+  font: menu;
+  font-size: 13px;
+  -moz-window-dragging: no-drag;
+  /* clip (not hidden): prevents Firefox from scrolling the sidebar when an element gains focus. */
+  overflow: clip;
+  overflow-clip-margin: 10px;
+}
+:root.sillage #browser { overflow: clip; }
+:root.sl-hidden #sl-sidebar { margin-left: calc(-1 * var(--sl-w)); visibility: hidden; pointer-events: none; }
+:root.sl-hidden.sl-peek #sl-sidebar {
+  visibility: visible;
+  position: fixed; top: 8px; bottom: 8px; left: 8px; z-index: 50;
+  margin-left: 0; opacity: 1; pointer-events: auto;
+  border-radius: 12px; padding-right: 8px;
+  background: radial-gradient(140% 100% at 0% 0%, var(--sl-bg1), var(--sl-bg2));
+  box-shadow: 0 12px 40px hsl(0 0% 0% / .45), 0 0 0 1px var(--sl-panel-line);
+}
+:root[inDOMFullscreen] #sl-sidebar { display: none; }
+/* Fullscreen (F11 or window manager): Firefox hides its navigation toolbox with a negative top margin,
+   which would shift the whole sidebar up. Prevent it; Sillage behaves as outside fullscreen
+   (Ctrl+S, peek on hover). */
+:root.sillage #navigator-toolbox { margin-top: 0 !important; }
+:root.sillage #fullscr-toggler { display: none !important; }
+
+#sl-peek { position: fixed; left: 0; top: 0; bottom: 0; width: 7px; z-index: 49; display: none; }
+:root.sl-hidden #sl-peek { display: block; }
+:root[inDOMFullscreen] #sl-peek { display: none; }
+
+/* Firefox's native navigation toolbar, restyled inside the sidebar */
+:root.sillage #navigator-toolbox {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 4px 6px 0;
+}
+:root.sillage #nav-bar {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+:root.sillage #nav-bar { position: relative; }
+:root.sillage #nav-bar-customization-target { flex-wrap: wrap; row-gap: 6px; padding-inline-end: 72px !important; }
+/* Menu and overflow buttons top-right; the address bar takes the full width below. */
+:root.sillage #PanelUI-button { position: absolute; top: 0; right: 0; }
+:root.sillage #nav-bar-overflow-button { position: absolute; top: 0; right: 34px; }
+:root.sillage #urlbar-container {
+  --urlbar-container-min-width: 0px !important;
+  order: 100;
+  flex: 1 1 calc(100% + 72px) !important;
+  width: calc(100% + 72px) !important;
+  margin-inline-end: -72px !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
+:root.sillage #nav-bar toolbarbutton { --toolbarbutton-outer-padding: 1px; }
+/* Bottom row: pinned extensions, downloads, account, extensions menu. */
+:root.sillage #nav-bar-customization-target > .webextension-browser-action,
+:root.sillage #nav-bar-customization-target > toolbaritem[id$="-browser-action"],
+:root.sillage #downloads-button,
+:root.sillage #fxa-toolbar-menu-button,
+:root.sillage #unified-extensions-button { order: 101; }
+:root.sillage #unified-extensions-button { margin-inline-start: auto !important; }
+
+#sl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: none; }
+#sl-scroll.sl-slide-l { animation: sl-slide-l .22s ease-out; }
+#sl-scroll.sl-slide-r { animation: sl-slide-r .22s ease-out; }
+@keyframes sl-slide-l { from { transform: translateX(-24px); opacity: 0; } }
+@keyframes sl-slide-r { from { transform: translateX(24px); opacity: 0; } }
+
+.sl-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
+.sl-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#sillage kbd, #sl-sidebar kbd, #sl-pal kbd {
+  font: inherit; font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--sl-hover); color: var(--sl-fg-dim);
+}
+
+/* Favoris */
+#sl-favorites { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 6px; margin-bottom: 10px; }
+#sl-favorites:empty { display: none; }
+:root.sl-is-dragging #sl-favorites:empty { display: block; height: 40px; border: 1.5px dashed var(--sl-line); border-radius: 10px; }
+.sl-fav-tile { height: 44px; display: grid; place-items: center; border-radius: 10px; background: var(--sl-hover); position: relative; }
+.sl-fav-tile:hover { background: var(--sl-active); }
+.sl-fav-tile.active { background: var(--sl-active); box-shadow: var(--sl-shadow), inset 0 0 0 1.5px var(--sl-accent); }
+.sl-fav-tile .sl-fav { width: 20px; height: 20px; }
+.sl-fav-tile.loaded::after { content: ""; position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 2px; background: var(--sl-fg-faint); }
+
+#sl-ws-title { display: flex; align-items: center; gap: 8px; padding: 2px 8px 6px; color: var(--sl-fg-faint); font-size: 11.5px; font-weight: 600; }
+#sl-ws-title > span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-prof { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 5px; border-radius: 9px; background: var(--sl-hover); font-weight: 500; white-space: nowrap; }
+.sl-prof .sl-icon { width: 12px; height: 12px; }
+
+/* Lignes */
+.sl-row {
+  display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 5px 0 10px; border-radius: 9px;
+  position: relative; white-space: nowrap; color: var(--sl-fg);
+}
+.sl-row:hover { background: var(--sl-hover); }
+.sl-row.active { background: var(--sl-active); box-shadow: var(--sl-shadow); }
+.sl-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.sl-row.unloaded .sl-title { color: var(--sl-fg-dim); }
+.sl-rbtn {
+  display: none; width: 22px; height: 22px; place-items: center; border-radius: 6px; padding: 0; margin: 0;
+  border: none; background: none; color: var(--sl-fg-dim); appearance: none;
+}
+.sl-rbtn .sl-icon { width: 14px; height: 14px; }
+.sl-rbtn:hover { background: var(--sl-hover); color: var(--sl-fg); }
+.sl-row:hover .sl-rbtn, .sl-rbtn.on { display: grid; }
+.sl-row.unloaded .sl-rbtn[data-act="close"] { display: none; }
+.sl-rename { flex: 1; font: inherit; color: inherit; background: var(--sl-input); border: 0; outline: 1.5px solid var(--sl-accent); border-radius: 5px; padding: 3px 5px; min-width: 0; }
+
+.sl-fav { width: 16px; height: 16px; border-radius: 4px; flex: none; object-fit: contain; }
+.sl-letter { display: grid; place-items: center; font-size: 10px; font-weight: 700; color: white; background: hsl(var(--lh) 55% 50%); }
+.sl-spin { border: 2px solid var(--sl-line); border-top-color: var(--sl-accent); border-radius: 50%; animation: sl-spin .7s linear infinite; width: 12px; height: 12px; margin: 2px; }
+@keyframes sl-spin { to { transform: rotate(360deg); } }
+
+.sl-folder-head { color: var(--sl-fg-dim); }
+.sl-chev { width: 12px; height: 12px; transition: transform .15s; }
+.sl-folder-head.open .sl-chev { transform: rotate(90deg); }
+.sl-folder-body { padding-left: 14px; }
+.sl-folder-body:empty::before { content: "Empty"; display: block; padding: 6px 12px; color: var(--sl-fg-faint); font-size: 12px; }
+
+#sl-pinned:empty::before { content: "Drag a tab here to pin it"; display: block; padding: 8px 10px; color: var(--sl-fg-faint); font-size: 12px; }
+
+.sl-divider { display: flex; align-items: center; gap: 8px; margin: 8px 4px 6px; height: 18px; }
+.sl-divider > span { flex: 1; height: 1px; background: var(--sl-line); }
+.sl-divider > button { font: inherit; font-size: 11.5px; color: var(--sl-fg-faint); padding: 2px 6px; border-radius: 5px; border: none; background: none; opacity: 0; appearance: none; margin: 0; }
+#sl-sidebar:hover .sl-divider > button { opacity: 1; }
+.sl-divider > button:hover { background: var(--sl-hover); color: var(--sl-fg); }
+
+#sl-newtab { color: var(--sl-fg-dim); }
+#sl-newtab kbd { margin-left: auto; opacity: 0; }
+#sl-newtab:hover kbd { opacity: 1; }
+#sl-today { min-height: 60px; padding-bottom: 20px; }
+
+/* Drag and drop */
+.sl-drop-before::before, .sl-drop-after::after {
+  content: ""; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 1px; background: var(--sl-accent); z-index: 2;
+}
+.sl-drop-before::before { top: -1px; }
+.sl-drop-after::after { bottom: -1px; }
+.sl-fav-tile.sl-drop-before::before { top: 6px; bottom: 6px; left: -4px; right: auto; width: 2px; height: auto; }
+.sl-fav-tile.sl-drop-after::after { top: 6px; bottom: 6px; right: -4px; left: auto; width: 2px; height: auto; }
+.sl-drop-into { outline: 1.5px solid var(--sl-accent); outline-offset: -1.5px; }
+.sl-dragging { opacity: .4; }
+
+/* Bas : workspaces */
+#sl-bottom { display: flex; align-items: center; gap: 4px; padding: 8px 6px 0 0; }
+#sl-ws-bar { flex: 1; display: flex; justify-content: center; gap: 2px; overflow: hidden; }
+.sl-btn, .sl-ws-dot {
+  width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: none; background: none;
+  color: var(--sl-fg-dim); padding: 0; margin: 0; appearance: none;
+}
+.sl-btn:hover { background: var(--sl-hover); color: var(--sl-fg); }
+.sl-ws-dot { font-size: 15px; filter: grayscale(.7); opacity: .55; transition: opacity .15s, filter .15s, transform .15s; }
+.sl-ws-dot:hover { opacity: .9; filter: none; background: var(--sl-hover); }
+.sl-ws-dot.active { opacity: 1; filter: none; background: var(--sl-hover); }
+.sl-ws-dot.sl-drop-into { transform: scale(1.15); }
+
+#sl-resizer { position: absolute; top: 0; right: -6px; bottom: 0; width: 8px; cursor: ew-resize; z-index: 3; }
+:root.sl-hidden #sl-resizer { display: none; }
+
+/* ---------- Toast ---------- */
+#sl-toast {
+  position: fixed; right: 24px; bottom: 24px; z-index: 100; padding: 9px 16px; border-radius: 10px;
+  background: hsl(var(--sl-h) 20% 12% / .94); color: #f4f2fa; font: menu; font-size: 13px;
+  box-shadow: 0 6px 24px hsl(0 0% 0% / .35); opacity: 0; transform: translateY(8px);
+  transition: opacity .15s, transform .15s; pointer-events: none;
+}
+#sl-toast.show { opacity: 1; transform: none; }
+
+/* ---------- Palette ---------- */
+#sl-pal-wrap { position: fixed; inset: 0; z-index: 200; font: menu; font-size: 13px; color: var(--sl-fg); }
+#sl-pal-wrap[hidden], #sl-wsf-wrap[hidden] { display: none; }
+#sl-pal-scrim { position: absolute; inset: 0; background: hsl(0 0% 0% / .3); animation: sl-fade .12s; }
+@keyframes sl-fade { from { opacity: 0; } }
+#sl-pal {
+  position: absolute; left: var(--pal-x); top: var(--pal-y); width: var(--pal-w); transform: translateX(-50%);
+  background: var(--sl-panel); border-radius: 14px; overflow: hidden;
+  box-shadow: 0 24px 70px hsl(0 0% 0% / .45), 0 0 0 1px var(--sl-panel-line);
+  animation: sl-pop .14s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes sl-pop { from { transform: translateX(-50%) scale(.97); opacity: 0; } }
+#sl-pal-box { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 54px; border-bottom: 1px solid var(--sl-panel-line); }
+#sl-pal-box .sl-icon { width: 18px; height: 18px; color: var(--sl-fg-faint); }
+#sl-pal-input { flex: 1; font: inherit; font-size: 16px; color: var(--sl-fg); background: none; border: 0; outline: 0; appearance: none; padding: 0; }
+#sl-pal-list { max-height: 440px; overflow-y: auto; padding: 6px; position: relative; }
+#sl-pal-list:empty { display: none; }
+.sl-pr { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px; border-radius: 9px; }
+.sl-pr.sel { background: var(--sl-accent); color: white; }
+.sl-pr .sl-fav, .sl-pr > .sl-icon { width: 18px; height: 18px; color: var(--sl-fg-dim); }
+.sl-pr.sel > .sl-icon { color: white; }
+.sl-pr-txt { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.sl-pr-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.sl-pr-sub { color: var(--sl-fg-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0; }
+.sl-pr-badge { color: var(--sl-fg-faint); font-size: 11.5px; white-space: nowrap; }
+.sl-pr.sel .sl-pr-sub, .sl-pr.sel .sl-pr-badge { color: hsl(0 0% 100% / .8); }
+#sl-pal-hint { display: flex; gap: 6px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--sl-panel-line); color: var(--sl-fg-faint); font-size: 11.5px; }
+
+/* ---------- Workspace editor ---------- */
+#sl-wsf-wrap { position: fixed; inset: 0; z-index: 210; display: grid; place-items: center; background: hsl(0 0% 0% / .35); font: menu; font-size: 13px; color: var(--sl-fg); animation: sl-fade .12s; }
+#sl-wsf { width: 340px; padding: 22px; border-radius: 16px; background: var(--sl-panel); box-shadow: 0 24px 70px hsl(0 0% 0% / .45), 0 0 0 1px var(--sl-panel-line); display: grid; gap: 12px; }
+#sl-wsf h2 { margin: 0; font-size: 16px; }
+#sl-wsf label { display: grid; gap: 6px; color: var(--sl-fg-dim); font-size: 12px; }
+#sl-wsf input:not([type=range]) { font: inherit; font-size: 14px; color: var(--sl-fg); background: var(--sl-input); border: 1px solid var(--sl-panel-line); border-radius: 8px; padding: 8px 10px; outline: 0; }
+#sl-wsf input:focus { border-color: var(--sl-accent); }
+#sl-wsf-preview {
+  height: 70px; border-radius: 12px; display: grid; place-items: center; font-size: 30px;
+  background: radial-gradient(120% 90% at 0% 0%, hsl(var(--pv-h) 34% 26%), hsl(calc(var(--pv-h) + 45) 38% 15%));
+}
+@media (prefers-color-scheme: light) {
+  #sl-wsf-preview { background: radial-gradient(120% 90% at 0% 0%, hsl(var(--pv-h) 70% 85%), hsl(calc(var(--pv-h) + 45) 62% 76%)); }
+}
+#sl-wsf-emojis { display: flex; flex-wrap: wrap; gap: 2px; }
+#sl-wsf-emojis button { width: 30px; height: 30px; border-radius: 7px; font-size: 16px; border: none; background: none; appearance: none; padding: 0; margin: 0; }
+#sl-wsf-emojis button:hover { background: var(--sl-hover); }
+.sl-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.sl-actions button { padding: 7px 14px; border-radius: 8px; background: var(--sl-hover); border: none; color: var(--sl-fg); appearance: none; margin: 0; font: inherit; }
+.sl-actions button.primary { background: var(--sl-accent); color: white; font-weight: 600; }
+
+/* ---------- Recent tabs switcher (Ctrl+Shift+→ / ←) ---------- */
+#sl-switcher {
+  position: fixed; left: var(--sw-x); top: var(--sw-y); transform: translateX(-50%); z-index: 220;
+  padding: 12px 12px 10px; border-radius: 18px; background: var(--sl-panel); color: var(--sl-fg);
+  box-shadow: 0 18px 60px hsl(0 0% 0% / .45), 0 0 0 1px var(--sl-panel-line); font: menu; font-size: 12.5px;
+  animation: sl-sw-in .12s ease-out;
+}
+@keyframes sl-sw-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } }
+#sl-switcher[hidden] { display: none; }
+.sl-sw-cards { display: flex; align-items: stretch; gap: 10px; }
+.sl-sw-card {
+  width: 176px; padding: 6px 6px 8px; border-radius: 13px; display: flex; flex-direction: column; gap: 7px;
+  position: relative; opacity: .7; transition: transform .1s, opacity .1s, background .1s;
+}
+.sl-sw-card.sel { background: var(--sl-accent); color: white; opacity: 1; transform: scale(1.04); box-shadow: 0 8px 22px hsl(var(--sl-h) 60% 25% / .4); }
+.sl-sw-preview {
+  height: 110px; border-radius: 9px; overflow: hidden; position: relative; background: hsl(0 0% 100% / .92);
+  box-shadow: 0 0 0 1px var(--sl-panel-line); display: grid; place-items: center;
+}
+.sl-sw-preview.empty { background: var(--sl-hover); }
+.sl-sw-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+/* Large icon: centered without a thumbnail, as a corner badge over a thumbnail. */
+.sl-sw-icon { position: relative; width: 56px; height: 56px; display: grid; place-items: center; border-radius: 14px; background: hsl(0 0% 100% / .95); box-shadow: 0 2px 8px hsl(0 0% 0% / .2); }
+.sl-sw-icon .sl-fav { width: 34px; height: 34px; border-radius: 6px; }
+.sl-sw-icon .sl-letter { font-size: 18px; }
+.sl-sw-thumb + .sl-sw-icon { position: absolute; left: 8px; bottom: 8px; width: 38px; height: 38px; border-radius: 10px; }
+.sl-sw-thumb + .sl-sw-icon .sl-fav { width: 24px; height: 24px; }
+.sl-sw-title { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.sl-sw-card.origin:not(.sel) .sl-sw-preview { outline: 2px dashed var(--sl-line); outline-offset: 2px; }
+.sl-sw-ws { position: absolute; top: 10px; right: 10px; font-size: 14px; filter: drop-shadow(0 1px 2px hsl(0 0% 0% / .4)); }
+.sl-sw-more { align-self: center; padding: 0 6px; color: var(--sl-fg-faint); font-size: 13px; }
+.sl-sw-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; padding: 0 4px; color: var(--sl-fg-faint); }
+.sl-sw-dots { display: flex; gap: 4px; }
+.sl-sw-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--sl-line); }
+.sl-sw-dots i.on { background: var(--sl-accent); }
+
+/* Profile picker in the workspace editor */
+.sl-wsf-field { display: grid; gap: 6px; color: var(--sl-fg-dim); font-size: 12px; }
+#sl-wsf-profile { margin: 0; min-height: 32px; }

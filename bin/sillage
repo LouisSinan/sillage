@@ -1,0 +1,6 @@
+#!/bin/bash
+# Linux launcher: Firefox with the Sillage interface, on the Sillage profile.
+source "$(dirname "$(readlink -f "$0")")/../scripts/common.sh"
+# A Firefox update may remove the loader: put it back.
+loader_up_to_date || install_loader
+exec "$FF_BIN" --profile "$PROFILE" --name sillage "$@"

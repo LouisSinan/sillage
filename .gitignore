@@ -1,0 +1,9 @@
+# Development script loaded by the interface when present (see tests/run.sh)
+profile/chrome/debug.js
+
+# Temporary and OS files
+*.tmp
+*.log
+*.bak
+.DS_Store
+*~
