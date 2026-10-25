@@ -121,3 +121,9 @@ makes no network requests of its own beyond search suggestions from your default
 
 Sillage is inspired by [Arc](https://arc.net) and builds on [Firefox](https://www.mozilla.org/firefox/).
 It is not affiliated with Mozilla or The Browser Company. Firefox is a trademark of the Mozilla Foundation.
+
+## License
+
+Sillage is released under the [MIT License](LICENSE). Firefox itself is not part of this repository:
+it is downloaded from Mozilla at install time and remains under the
+[Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/).
