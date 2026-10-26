@@ -31,13 +31,13 @@ const serialize = o => JSON.stringify(o, (k, v) => (k.startsWith("_") ? undefine
 const profileFields = p => ({ name: p.name, favorites: p.favorites, hiddenExtensions: p.hiddenExtensions || [] });
 const workspaceFields = (w, order) => ({
   name: w.name, icon: w.icon, hue: w.hue, profile: w.profile, pinned: w.pinned,
-  notes: w.board?.notes || [], order,
+  notes: w.board?.notes || [], items: w.board?.items || [], order,
 });
 
 /* A workspace or profile nobody has touched yet (fresh install defaults). */
 function pristine(entity, kind) {
   if (entity.mod) return false;
-  return kind === "profile" ? !entity.favorites.length && !entity.hiddenExtensions?.length : !entity.pinned.length && !entity.board?.notes?.length;
+  return kind === "profile" ? !entity.favorites.length && !entity.hiddenExtensions?.length : !entity.pinned.length && !entity.board?.notes?.length && !entity.board?.items?.length;
 }
 
 /* Stamps entities whose synced fields changed since the last call. Returns true if anything changed. */
@@ -145,9 +145,9 @@ export function merge(D, remote) {
     const fields = { name: r.name, icon: r.icon, hue: r.hue, profile, pinned: r.pinned || [], mod: r.mod, _order: r.order };
     if (w) {
       Object.assign(w, fields);
-      w.board = { ...(w.board || { view: { x: 0, y: 0, z: 1 } }), notes: r.notes || [] };
+      w.board = { ...(w.board || { view: { x: 0, y: 0, z: 1 } }), notes: r.notes || [], items: r.items || [] };
     } else {
-      D.workspaces.push({ id, ...fields, board: { notes: r.notes || [], view: { x: 0, y: 0, z: 1 } } });
+      D.workspaces.push({ id, ...fields, board: { notes: r.notes || [], items: r.items || [], view: { x: 0, y: 0, z: 1 } } });
       reorder = true;
     }
     delete tomb["workspace:" + id];

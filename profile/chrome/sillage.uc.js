@@ -59,6 +59,14 @@
     sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
     board: '<path d="M5 4h10l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M15 4v4h4"/><path d="M8 12h8M8 16h5"/>',
     user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-4 4-5.5 7-5.5s6 1.5 7 5.5"/>',
+    cursor: '<path d="M6 4l12 7-5.5 1.5L10 18z"/>',
+    text: '<path d="M6 6h12M12 6v13M9 19h6"/>',
+    line: '<path d="M5 19L19 5"/>',
+    arrow: '<path d="M5 19L19 5M10 5h9v9"/>',
+    rect: '<rect x="4" y="6" width="16" height="12" rx="1.5"/>',
+    ellipse: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
+    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/>',
+    trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
   };
   function icon(name, cls = "") {
     const e = h("span", { class: "sl-icon " + cls });
@@ -932,13 +940,18 @@
 
     todayBox.replaceChildren(...todayTabs(ws.id).filter(t => !isBlank(t)).map((t, i) => rowForTab(t, "today", i)));
 
-    const notes = ws.board?.notes?.filter(n => n.expires > Date.now()).length || 0;
+    // Orb badge: expired notes (red alert), otherwise the number of notes.
+    const alerts = expiredCount(ws), notes = ws.board?.notes?.length || 0;
     orb.classList.toggle("active", boardOpen);
-    orb.querySelector(".sl-orb-count").textContent = notes || "";
-    if (boardOpen) renderBoard();
+    orb.classList.toggle("alert", alerts > 0);
+    orb.title = alerts ? `${alerts} expired note${alerts > 1 ? "s" : ""} on this board` : "Board — notes and drawings for this workspace";
+    const badge = orb.querySelector(".sl-orb-count");
+    badge.textContent = alerts || notes || "";
+    badge.classList.toggle("alert", alerts > 0);
+    if (boardOpen) refreshBoard();
 
     wsBar.replaceChildren(...D.workspaces.map((w, i) => h("button", {
-      class: `sl-ws-dot${w.id === ws.id ? " active" : ""}`, "data-ws": w.id, "data-index": i, draggable: "true",
+      class: `sl-ws-dot${w.id === ws.id ? " active" : ""}${expiredCount(w) ? " alert" : ""}`, "data-ws": w.id, "data-index": i, draggable: "true",
       title: `${w.name}${showProfile ? " · " + profById(w.profile).name : ""} (Ctrl+${i + 1})`, text: w.icon,
     })));
 
@@ -1955,54 +1968,115 @@
     return t;
   }
 
-  /* ---------- Board: an infinite canvas of sticky notes, one per workspace ----------
-     Notes live for 7 days (countdown and shrinking bar), then disappear unless renewed. */
+  /* ---------- Board: an infinite canvas per workspace ----------
+     Sticky notes, free text and basic shapes (line, arrow, rectangle, ellipse), with colors, fonts and sizes.
+     Notes have a lifetime (7 days by default, adjustable per note). When it runs out a note is kept and
+     raises a red alert, in the board and in the sidebar, until it is renewed, snoozed or deleted. */
 
-  const NOTE_LIFETIME = 7 * 86400e3;
+  const DAY = 86400e3;
+  const LIFETIMES = [[DAY, "1 day"], [3 * DAY, "3 days"], [7 * DAY, "7 days"], [14 * DAY, "2 weeks"], [30 * DAY, "1 month"], [0, "No expiry"]];
+  const SNOOZES = [[3600e3, "In 1 hour"], [4 * 3600e3, "In 4 hours"], [DAY, "Tomorrow"], [3 * DAY, "In 3 days"], [7 * DAY, "In a week"]];
   const NOTE_COLORS = ["yellow", "pink", "blue", "green", "purple"];
-  let boardOpen = false, boardWrap, boardView, boardWorld, boardTimer, boardHideTimer;
+  const INKS = ["ink", "gray", "red", "orange", "green", "blue", "purple", "pink"];
+  const FILLS = ["none", ...INKS.slice(1)];
+  const FONTS = {
+    sans: ["Sans", "system-ui, sans-serif"],
+    serif: ["Serif", "Georgia, 'Times New Roman', serif"],
+    mono: ["Mono", "ui-monospace, 'DejaVu Sans Mono', monospace"],
+    hand: ["Hand", "'Comic Sans MS', 'Comic Neue', 'Chalkboard SE', cursive"],
+  };
+  const SIZES = { S: 13, M: 16, L: 22, XL: 32 };
+  const WIDTHS = { thin: 1.5, medium: 3, bold: 6 };
+  const TOOLS = [
+    ["select", "V", "Select and move", "cursor"], ["note", "N", "Sticky note", "board"], ["text", "T", "Text", "text"],
+    ["line", "L", "Line", "line"], ["arrow", "A", "Arrow", "arrow"], ["rect", "R", "Rectangle", "rect"], ["ellipse", "O", "Ellipse", "ellipse"],
+  ];
+  const SHAPES = new Set(["line", "arrow", "rect", "ellipse"]);
+  let boardOpen = false, boardWrap, boardView, boardWorld, boardSvg, boardStyleBar, boardTimer, boardHideTimer;
+  let tool = "select", selectedId = null, boardBusy = 0; // boardBusy: a drag is in progress
 
   function board(ws = curWs()) {
     ws.board ||= { notes: [], view: { x: 0, y: 0, z: 1 } };
+    ws.board.notes ||= [];
+    ws.board.items ||= [];
+    ws.board.view ||= { x: 0, y: 0, z: 1 };
     return ws.board;
   }
+  const noteLifetime = () => D.settings.noteLifetime ?? 7 * DAY;
+  /* Style for new items (also updated by the last style chosen, as in Excalidraw). */
+  const boardStyle = () => (D.settings.boardStyle = { color: "ink", fill: "none", width: "medium", font: "sans", size: "M", noteColor: null, ...D.settings.boardStyle });
+  const inkVar = c => `var(--bc-${INKS.includes(c) ? c : "ink"})`;
+  const fillVar = c => (FILLS.includes(c) && c !== "none" ? `var(--bf-${c})` : "none");
+  const fontOf = f => (FONTS[f] || FONTS.sans)[1];
+  const sizeOf = s => SIZES[s] || SIZES.M;
 
-  /* Removes expired notes everywhere; returns true if something changed. */
-  function purgeNotes() {
-    const now = Date.now();
-    let changed = false;
-    for (const w of D.workspaces) {
-      const b = w.board;
-      if (!b) continue;
-      const kept = b.notes.filter(n => n.expires > now);
-      if (kept.length !== b.notes.length) { b.notes = kept; changed = true; }
-    }
-    if (changed) save();
-    return changed;
+  const isExpired = n => n.expires != null && n.expires <= Date.now();
+  const expiredCount = ws => (ws.board?.notes || []).filter(isExpired).length;
+
+  function span(ms) {
+    const d = Math.floor(ms / DAY), hh = Math.floor(ms % DAY / 3600e3), mm = Math.floor(ms % 3600e3 / 60e3);
+    return d ? `${d}d ${hh}h` : hh ? `${hh}h ${mm}m` : `${Math.max(1, mm)}m`;
+  }
+  function remaining(n) {
+    if (n.expires == null) return { ms: Infinity, label: "No expiry", ratio: 1, expired: false };
+    const ms = n.expires - Date.now();
+    if (ms <= 0) return { ms, label: `Expired ${span(-ms)} ago`, ratio: 0, expired: true };
+    if (n.snoozed) return { ms, label: `Reminder in ${span(ms)}`, ratio: 1, expired: false };
+    const life = n.lifetime || Math.max(1, n.expires - (n.created || n.expires - 7 * DAY));
+    return { ms, label: `${span(ms)} left`, ratio: Math.min(1, ms / life), expired: false };
   }
 
-  function remaining(n) {
-    const ms = Math.max(0, n.expires - Date.now());
-    const d = Math.floor(ms / 86400e3), hh = Math.floor(ms % 86400e3 / 3600e3), mm = Math.floor(ms % 3600e3 / 60e3);
-    return { ms, label: d ? `${d}d ${hh}h left` : hh ? `${hh}h ${mm}m left` : `${mm}m left`, ratio: ms / NOTE_LIFETIME };
+  /* Gives a note a new lifetime from now (0: no expiry). */
+  function renewNote(n, lifetime = n.lifetime ?? noteLifetime()) {
+    n.lifetime = lifetime;
+    n.expires = lifetime ? Date.now() + lifetime : null;
+    delete n.snoozed;
+    save();
+    renderBoard();
+    render();
+  }
+  /* "Remind me later": silences the alert, which comes back after the delay. */
+  function snoozeNote(n, delay) {
+    n.expires = Date.now() + delay;
+    n.snoozed = true;
+    save();
+    renderBoard();
+    render();
+  }
+  function lifetimeMenu(e, n) {
+    popup(e, [
+      ...LIFETIMES.map(([ms, label]) => ({ label: `${n ? "Keep for" : "New notes last"} ${label.toLowerCase()}${ms === noteLifetime() && !n ? " ✓" : ""}`,
+        fn: () => (n ? renewNote(n, ms) : (D.settings.noteLifetime = ms, save(), renderBoard())) })),
+      n && "-",
+      ...(n ? SNOOZES.map(([ms, label]) => ({ label: `Remind me ${label.toLowerCase()}`, fn: () => snoozeNote(n, ms) })) : []),
+    ]);
+  }
+
+  const SVG = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs = {}) {
+    const e = doc.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+    return e;
   }
 
   function buildBoard() {
+    boardSvg = svgEl("svg", { id: "sl-board-svg", width: "1", height: "1" });
     boardWorld = h("div", { id: "sl-board-world" });
-    boardView = h("div", { id: "sl-board-view" }, boardWorld);
+    boardView = h("div", { id: "sl-board-view", tabindex: "-1" }, boardWorld);
     const title = h("span", { class: "sl-board-title" });
     const zoom = h("span", { class: "sl-board-zoom" });
+    const tools = h("div", { class: "sl-board-tools" }, TOOLS.map(([id, key, label, ic]) =>
+      h("button", { class: "sl-board-tool", "data-tool": id, title: `${label} (${key})`, onclick: () => setTool(id) }, icon(ic))));
+    const lifeBtn = h("button", { class: "sl-board-btn sl-board-life", title: "Lifetime of new notes", onclick: e => lifetimeMenu(e, null) });
+    boardStyleBar = h("div", { id: "sl-board-style" });
     boardWrap = h("div", { id: "sl-board-wrap", hidden: true },
       h("div", { id: "sl-board-bar" },
         h("span", { class: "sl-orb-mini" }, h("img", { src: "chrome://sillage/content/logo-mark.svg", alt: "" })),
-        title,
-        h("span", { class: "sl-board-hint", text: "Double-click to add a note · drag to pan · Ctrl+scroll to zoom" }),
-        zoom,
-        h("button", { class: "sl-board-btn", onclick: () => addNote() }, icon("plus"), "Note"),
+        title, tools, h("span", { class: "sl-board-spacer" }), lifeBtn, zoom,
         h("button", { class: "sl-board-btn", title: "Close (Esc)", onclick: closeBoard }, icon("x"))),
+      boardStyleBar,
       boardView);
-    boardWrap.titleEl = title;
-    boardWrap.zoomEl = zoom;
+    Object.assign(boardWrap, { titleEl: title, zoomEl: zoom, toolsEl: tools, lifeEl: lifeBtn });
     doc.body.append(boardWrap);
 
     const view = () => board().view;
@@ -2012,33 +2086,103 @@
       boardView.style.backgroundPosition = `${v.x}px ${v.y}px`;
       boardView.style.backgroundSize = `${24 * v.z}px ${24 * v.z}px`;
       zoom.textContent = `${Math.round(v.z * 100)}%`;
+      boardWrap.style.setProperty("--bd-z", v.z);
     };
     boardWrap.apply = apply;
     const toWorld = (cx, cy) => {
       const r = boardView.getBoundingClientRect(), v = view();
       return { x: (cx - r.left - v.x) / v.z, y: (cy - r.top - v.y) / v.z };
     };
+    const isBackground = t => t === boardView || t === boardWorld || t === boardSvg;
+    // Pointer drags are captured by the view, so moves keep coming outside the element that started them.
+    const track = (e, move, up) => {
+      try { boardView.setPointerCapture(e.pointerId); } catch {}
+      boardBusy++;
+      const m = ev => move(ev), u = ev => {
+        boardView.removeEventListener("pointermove", m);
+        boardView.removeEventListener("pointerup", u);
+        boardBusy--;
+        up?.(ev);
+      };
+      boardView.addEventListener("pointermove", m);
+      boardView.addEventListener("pointerup", u);
+    };
 
-    // Pan by dragging the background.
     boardView.addEventListener("pointerdown", e => {
-      if (e.target !== boardView && e.target !== boardWorld) return;
+      if (e.target.closest(".sl-note") || e.target.closest(".sl-btext[contenteditable=true]")) return;
+      const b = board(), p = toWorld(e.clientX, e.clientY);
+      // Middle button, or Space held: pan whatever the tool.
+      const pan = e.button === 1 || (e.button === 0 && tool === "select" && isBackground(e.target)) || boardView.classList.contains("space");
+      if (e.button !== 0 && e.button !== 1) return;
       e.preventDefault();
-      boardView.setPointerCapture(e.pointerId);
+      boardView.focus({ preventScroll: true });
+
+      if (!pan && SHAPES.has(tool)) {
+        const st = boardStyle();
+        const it = { kind: tool, id: uid(), x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: st.color, width: st.width };
+        if (tool === "rect" || tool === "ellipse") it.fill = st.fill;
+        b.items.push(it);
+        select(it.id);
+        track(e, ev => {
+          const q = toWorld(ev.clientX, ev.clientY);
+          it.x2 = q.x; it.y2 = q.y;
+          if (ev.shiftKey) constrain(it);
+          renderShapes();
+        }, () => {
+          // A simple click makes a default-sized shape.
+          if (Math.hypot(it.x2 - it.x1, it.y2 - it.y1) < 4) { it.x2 = it.x1 + 120; it.y2 = it.y1 + (SHAPES.has(tool) && /line|arrow/.test(tool) ? 0 : 80); }
+          normalize(it);
+          setTool("select");
+          save();
+          renderBoard();
+        });
+        return;
+      }
+      if (!pan && tool === "note") { const n = addNote(p.x - 110, p.y - 20); setTool("select"); select(n.id); return; }
+      if (!pan && tool === "text") { addText(p.x, p.y - sizeOf(boardStyle().size) * .7); setTool("select"); return; }
+
+      const handle = e.target.closest?.("[data-handle]");
+      const itemEl = e.target.closest?.("[data-item]");
+      if (!pan && handle) {
+        const it = b.items.find(i => i.id === selectedId);
+        if (!it) return;
+        const [hx, hy] = handle.dataset.handle.split(",");
+        track(e, ev => {
+          const q = toWorld(ev.clientX, ev.clientY);
+          it[hx] = q.x; it[hy] = q.y;
+          if (ev.shiftKey && /line|arrow/.test(it.kind)) constrain(it, hx === "x1");
+          renderShapes();
+        }, () => { normalize(it); save(); renderBoard(); });
+        return;
+      }
+      if (!pan && itemEl) {
+        const it = b.items.find(i => i.id === itemEl.dataset.item);
+        if (!it) return;
+        select(it.id);
+        const start = { x: p.x, y: p.y }, orig = { ...it };
+        let moved = false;
+        track(e, ev => {
+          const q = toWorld(ev.clientX, ev.clientY), dx = q.x - start.x, dy = q.y - start.y;
+          moved ||= Math.hypot(dx, dy) * view().z > 2;
+          for (const k of ["x", "x1", "x2"]) if (k in it) it[k] = orig[k] + dx;
+          for (const k of ["y", "y1", "y2"]) if (k in it) it[k] = orig[k] + dy;
+          if (it.kind === "text") { itemEl.style.left = it.x + "px"; itemEl.style.top = it.y + "px"; }
+          else renderShapes();
+        }, () => { if (moved) save(); });
+        return;
+      }
+      // Background: deselect and pan.
+      select(null);
       const v = view(), start = { x: e.clientX - v.x, y: e.clientY - v.y };
       boardView.classList.add("panning");
-      const move = ev => { v.x = ev.clientX - start.x; v.y = ev.clientY - start.y; apply(); };
-      const up = () => {
-        boardView.removeEventListener("pointermove", move);
-        boardView.removeEventListener("pointerup", up);
+      track(e, ev => { v.x = ev.clientX - start.x; v.y = ev.clientY - start.y; apply(); }, () => {
         boardView.classList.remove("panning");
         save();
-      };
-      boardView.addEventListener("pointermove", move);
-      boardView.addEventListener("pointerup", up);
+      });
     });
     // Scroll pans, Ctrl+scroll zooms around the cursor.
     boardView.addEventListener("wheel", e => {
-      if (e.target.closest(".sl-note textarea") && !e.ctrlKey) return;
+      if ((e.target.closest(".sl-note textarea") || e.target.closest(".sl-btext[contenteditable=true]")) && !e.ctrlKey) return;
       e.preventDefault();
       const v = view();
       if (e.ctrlKey || e.metaKey) {
@@ -2053,13 +2197,126 @@
       boardWrap.saveT = setTimeout(save, 400);
     }, { passive: false });
     boardView.addEventListener("dblclick", e => {
-      if (e.target !== boardView && e.target !== boardWorld) return;
+      if (!isBackground(e.target)) return;
       const p = toWorld(e.clientX, e.clientY);
-      addNote(p.x - 110, p.y - 20);
+      select(addNote(p.x - 110, p.y - 20).id);
     });
     boardWrap.addEventListener("keydown", e => {
-      if (e.key === "Escape" && !e.target.closest("textarea")) { e.stopPropagation(); closeBoard(); }
+      const typing = e.target.closest("textarea, input, [contenteditable=true]");
+      if (e.key === " " && !typing) { boardView.classList.add("space"); return; }
+      if (typing) return;
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        if (tool !== "select") setTool("select");
+        else if (selectedId) select(null);
+        else closeBoard();
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedId) { e.preventDefault(); deleteBoardItem(selectedId); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = TOOLS.find(([, key]) => key === e.key.toUpperCase());
+      if (t) { e.preventDefault(); setTool(t[0]); }
     });
+    boardWrap.addEventListener("keyup", e => { if (e.key === " ") boardView.classList.remove("space"); });
+  }
+
+  /* Shift while drawing: horizontal / vertical / 45° lines, squares and circles. */
+  function constrain(it, fromEnd = false) {
+    const [ax, ay, bx, by] = fromEnd ? ["x2", "y2", "x1", "y1"] : ["x1", "y1", "x2", "y2"];
+    const dx = it[bx] - it[ax], dy = it[by] - it[ay];
+    if (it.kind === "rect" || it.kind === "ellipse") {
+      const s = Math.max(Math.abs(dx), Math.abs(dy));
+      it[bx] = it[ax] + Math.sign(dx || 1) * s; it[by] = it[ay] + Math.sign(dy || 1) * s;
+    } else {
+      const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(dx, dy);
+      it[bx] = it[ax] + Math.cos(a) * len; it[by] = it[ay] + Math.sin(a) * len;
+    }
+  }
+  /* Rounds coordinates; rectangles and ellipses keep x1,y1 as their top-left corner. */
+  function normalize(it) {
+    if (it.kind === "rect" || it.kind === "ellipse") {
+      [it.x1, it.x2] = [Math.min(it.x1, it.x2), Math.max(it.x1, it.x2)];
+      [it.y1, it.y2] = [Math.min(it.y1, it.y2), Math.max(it.y1, it.y2)];
+    }
+    for (const k of ["x", "y", "x1", "y1", "x2", "y2"]) if (k in it) it[k] = Math.round(it[k]);
+  }
+
+  function setTool(t) {
+    tool = t;
+    if (t !== "select") select(null, { keepBar: true });
+    boardWrap?.toolsEl.querySelectorAll(".sl-board-tool").forEach(b => b.classList.toggle("active", b.dataset.tool === t));
+    boardView?.classList.toggle("drawing", t !== "select");
+    drawStyleBar();
+  }
+
+  /* Selection: a note, a text or a shape. Updates marks and the style bar without rebuilding the board. */
+  function select(id) {
+    selectedId = id;
+    for (const el of boardWorld.querySelectorAll(".sl-selected")) el.classList.remove("sl-selected");
+    if (id) boardWorld.querySelector(`[data-note="${id}"], .sl-btext[data-item="${id}"]`)?.classList.add("sl-selected");
+    renderShapes();
+    drawStyleBar();
+  }
+  function selectedObject() {
+    if (!selectedId) return null;
+    const b = board();
+    const n = b.notes.find(x => x.id === selectedId);
+    return n ? { kind: "note", obj: n } : (o => o && { kind: o.kind, obj: o })(b.items.find(x => x.id === selectedId));
+  }
+
+  function deleteBoardItem(id) {
+    const b = board();
+    b.notes = b.notes.filter(n => n.id !== id);
+    b.items = b.items.filter(i => i.id !== id);
+    if (selectedId === id) selectedId = null;
+    save();
+    renderBoard();
+    render();
+  }
+
+  /* Style bar: colors, fill, stroke width, font and size of the selection (or of the next item drawn). */
+  function drawStyleBar() {
+    if (!boardStyleBar) return;
+    const sel = selectedObject();
+    const kind = sel ? sel.kind : tool === "select" ? null : tool;
+    boardStyleBar.hidden = !kind;
+    if (!kind) return boardStyleBar.replaceChildren();
+    const st = boardStyle();
+    const cur = sel ? sel.obj : st;
+    const set = (key, value) => {
+      if (sel) { sel.obj[key] = value; }
+      // The choice also becomes the default for new items.
+      if (kind === "note" && key === "color") st.noteColor = value; else st[key] = value;
+      save();
+      if (sel) renderBoard(); else drawStyleBar();
+    };
+    const group = (label, ...kids) => h("div", { class: "sl-bs-group" }, h("span", { class: "sl-bs-label", text: label }), ...kids);
+    const swatches = (key, list, varOf, value) => list.map(c => h("button", {
+      class: `sl-bs-swatch${c === value ? " on" : ""}${c === "none" ? " none" : ""}`, title: c, style: c === "none" ? "" : `--sw:${varOf(c)}`,
+      onclick: () => set(key, c),
+    }));
+    const choice = (key, entries, value) => entries.map(([v, label, style]) => h("button", {
+      class: `sl-bs-choice${v === value ? " on" : ""}`, text: label, style, onclick: () => set(key, v),
+    }));
+    const parts = [];
+    if (kind === "note") {
+      parts.push(group("Color", ...swatches("color", NOTE_COLORS, c => `var(--bn-${c})`, sel ? cur.color : st.noteColor)));
+    } else {
+      parts.push(group(SHAPES.has(kind) ? "Stroke" : "Color", ...swatches("color", INKS, inkVar, cur.color || "ink")));
+    }
+    if (kind === "rect" || kind === "ellipse") parts.push(group("Fill", ...swatches("fill", FILLS, fillVar, cur.fill || "none")));
+    if (SHAPES.has(kind)) {
+      parts.push(group("Width", ...choice("width", Object.entries(WIDTHS).map(([k, px]) => [k, "", `--lw:${Math.max(1.5, px)}px`]), cur.width || "medium")
+        .map(b => (b.classList.add("sl-bs-width"), b))));
+    } else {
+      parts.push(group("Font", ...choice("font", Object.entries(FONTS).map(([k, [label, fam]]) => [k, label, `font-family:${fam}`]), cur.font || "sans")));
+      parts.push(group("Size", ...choice("size", Object.keys(SIZES).map(k => [k, k]), cur.size || "M")));
+    }
+    if (sel) {
+      if (kind === "note") parts.push(group("Lifetime", h("button", { class: "sl-bs-choice", text: remaining(sel.obj).label, onclick: e => lifetimeMenu(e, sel.obj) })));
+      parts.push(h("button", { class: "sl-bs-choice sl-bs-delete", title: "Delete (Del)", onclick: () => deleteBoardItem(sel.obj.id) }, icon("trash")));
+    }
+    boardStyleBar.replaceChildren(...parts);
   }
 
   function addNote(x, y, text = "") {
@@ -2069,8 +2326,11 @@
       x = (r.width / 2 - v.x) / v.z - 110 + (b.notes.length % 5) * 18;
       y = (r.height / 2 - v.y) / v.z - 80 + (b.notes.length % 5) * 18;
     }
-    const now = Date.now();
-    const n = { id: uid(), x: Math.round(x), y: Math.round(y), text, color: NOTE_COLORS[b.notes.length % NOTE_COLORS.length], created: now, expires: now + NOTE_LIFETIME };
+    const now = Date.now(), life = noteLifetime(), st = boardStyle();
+    const n = {
+      id: uid(), x: Math.round(x), y: Math.round(y), text, color: st.noteColor || NOTE_COLORS[b.notes.length % NOTE_COLORS.length],
+      font: st.font, size: st.size, created: now, lifetime: life, expires: life ? now + life : null,
+    };
     b.notes.push(n);
     save();
     if (boardOpen) {
@@ -2079,13 +2339,101 @@
       el?.classList.add("sl-enter");
       el?.querySelector("textarea").focus();
     }
+    render();
     return n;
   }
 
+  function addText(x, y, text = "") {
+    const st = boardStyle();
+    const it = { kind: "text", id: uid(), x: Math.round(x), y: Math.round(y), text, color: st.color, font: st.font, size: st.size };
+    board().items.push(it);
+    if (boardOpen) {
+      renderBoard();
+      select(it.id);
+      if (!text) editText(boardWorld.querySelector(`.sl-btext[data-item="${it.id}"]`), it);
+    }
+    save();
+    return it;
+  }
+
+  function editText(el, it) {
+    if (!el) return;
+    el.contentEditable = "true";
+    el.focus();
+    doc.getSelection().selectAllChildren(el);
+    const done = () => {
+      el.contentEditable = "false";
+      it.text = el.innerText.replace(/\n$/, "");
+      if (!it.text.trim()) return deleteBoardItem(it.id);
+      save();
+    };
+    el.addEventListener("blur", done, { once: true });
+  }
+
+  function textEl(it) {
+    const el = h("div", {
+      class: `sl-btext${it.id === selectedId ? " sl-selected" : ""}`, "data-item": it.id, text: it.text,
+      style: `left:${it.x}px;top:${it.y}px;color:${inkVar(it.color)};font-family:${fontOf(it.font)};font-size:${sizeOf(it.size)}px`,
+    });
+    el.addEventListener("dblclick", e => { e.stopPropagation(); editText(el, it); });
+    el.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Escape") el.blur();
+    });
+    el.addEventListener("input", () => { it.text = el.innerText; clearTimeout(it._t); it._t = setTimeout(save, 400); });
+    // Pasted content is inserted as plain text.
+    el.addEventListener("paste", e => {
+      e.preventDefault();
+      doc.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    });
+    return el;
+  }
+
+  /* Shapes are drawn in one SVG layer below notes and texts; each has a wider invisible outline for hit testing. */
+  function shapeGeometry(it, attrs = {}) {
+    const x = Math.min(it.x1, it.x2), y = Math.min(it.y1, it.y2), w = Math.abs(it.x2 - it.x1), hgt = Math.abs(it.y2 - it.y1);
+    if (it.kind === "rect") return svgEl("rect", { x, y, width: w, height: hgt, rx: 4, ...attrs });
+    if (it.kind === "ellipse") return svgEl("ellipse", { cx: x + w / 2, cy: y + hgt / 2, rx: w / 2, ry: hgt / 2, ...attrs });
+    let d = `M${it.x1} ${it.y1} L${it.x2} ${it.y2}`;
+    if (it.kind === "arrow") {
+      const a = Math.atan2(it.y2 - it.y1, it.x2 - it.x1), len = 10 + (WIDTHS[it.width] || 3) * 2.5;
+      const p = da => `${it.x2 - len * Math.cos(a + da)} ${it.y2 - len * Math.sin(a + da)}`;
+      d += ` M${p(0.45)} L${it.x2} ${it.y2} L${p(-0.45)}`;
+    }
+    return svgEl("path", { d, ...attrs });
+  }
+  function renderShapes() {
+    if (!boardSvg) return;
+    const b = board(), z = b.view.z;
+    const out = [];
+    for (const it of b.items) {
+      if (!SHAPES.has(it.kind)) continue;
+      const w = WIDTHS[it.width] || WIDTHS.medium, filled = it.fill && it.fill !== "none";
+      const g = svgEl("g", { class: `sl-shape${it.id === selectedId ? " sl-selected" : ""}`, "data-item": it.id });
+      g.append(
+        shapeGeometry(it, { class: "sl-shape-line", style: `stroke:${inkVar(it.color)};stroke-width:${w}px;fill:${filled ? fillVar(it.fill) : "none"}` }),
+        shapeGeometry(it, { class: `sl-hit${filled ? " filled" : ""}`, style: `stroke-width:${Math.max(14, w + 10) / Math.min(1, z)}px` }));
+      out.push(g);
+    }
+    // Selection: dashed box and handles (endpoints for lines, corners for boxes).
+    const sel = b.items.find(i => i.id === selectedId && SHAPES.has(i.kind));
+    if (sel) {
+      const r = 5 / z;
+      const handles = /line|arrow/.test(sel.kind) ? [["x1", "y1"], ["x2", "y2"]] : [["x1", "y1"], ["x2", "y1"], ["x1", "y2"], ["x2", "y2"]];
+      if (!/line|arrow/.test(sel.kind)) {
+        out.push(svgEl("rect", { class: "sl-sel-box", x: Math.min(sel.x1, sel.x2) - 4 / z, y: Math.min(sel.y1, sel.y2) - 4 / z,
+          width: Math.abs(sel.x2 - sel.x1) + 8 / z, height: Math.abs(sel.y2 - sel.y1) + 8 / z, style: `stroke-width:${1 / z}px;stroke-dasharray:${4 / z} ${3 / z}` }));
+      }
+      for (const [hx, hy] of handles) {
+        out.push(svgEl("circle", { class: "sl-handle", "data-handle": `${hx},${hy}`, cx: sel[hx], cy: sel[hy], r, style: `stroke-width:${1.5 / z}px` }));
+      }
+    }
+    boardSvg.replaceChildren(...out);
+  }
+
   function noteEl(n) {
-    const b = board();
     const r = remaining(n);
-    const text = h("textarea", { spellcheck: "false", placeholder: "Write something…" });
+    const text = h("textarea", { spellcheck: "false", placeholder: "Write something…", style: `font-family:${fontOf(n.font)};font-size:${sizeOf(n.size)}px` });
     text.value = n.text;
     const grow = () => { text.style.height = "auto"; text.style.height = text.scrollHeight + "px"; };
     text.addEventListener("input", () => {
@@ -2099,22 +2447,20 @@
       if (e.key === "Escape") text.blur();
     });
     const head = h("div", { class: "sl-note-head" },
-      h("button", { class: "sl-note-color", title: "Change color", onclick: () => {
-        n.color = NOTE_COLORS[(NOTE_COLORS.indexOf(n.color) + 1) % NOTE_COLORS.length];
-        save();
-        renderBoard();
-      } }),
-      h("span", { class: "sl-note-time", text: r.label, title: `Expires ${new Date(n.expires).toLocaleString()}` }),
-      h("button", { class: "sl-note-btn", title: "Keep for 7 more days", onclick: () => { n.expires = Date.now() + NOTE_LIFETIME; save(); renderBoard(); } }, icon("clock")),
-      h("button", { class: "sl-note-btn", title: "Delete", onclick: () => { b.notes.splice(b.notes.indexOf(n), 1); save(); renderBoard(); } }, icon("x")));
+      h("span", { class: "sl-note-alert", title: "This note has expired" }),
+      h("span", { class: "sl-note-time", text: r.label, title: n.expires ? `${r.expired ? "Expired" : "Expires"} ${new Date(n.expires).toLocaleString()}` : "This note never expires" }),
+      h("button", { class: "sl-note-btn sl-note-remind", title: "Remind me later", onclick: e => popup(e, SNOOZES.map(([ms, label]) => ({ label: `Remind me ${label.toLowerCase()}`, fn: () => snoozeNote(n, ms) }))) }, icon("bell")),
+      h("button", { class: "sl-note-btn", title: "Lifetime and reminders", onclick: e => lifetimeMenu(e, n) }, icon("clock")),
+      h("button", { class: "sl-note-btn", title: "Delete", onclick: () => deleteBoardItem(n.id) }, icon("x")));
     // Drag the note by its header.
     head.addEventListener("pointerdown", e => {
       if (e.target.closest("button")) return;
       e.preventDefault();
       head.setPointerCapture(e.pointerId);
-      const z = b.view.z, sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+      const b = board(), z = b.view.z, sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
       const el = head.parentNode;
       el.classList.add("dragging");
+      boardBusy++;
       const move = ev => {
         n.x = Math.round(ox + (ev.clientX - sx) / z);
         n.y = Math.round(oy + (ev.clientY - sy) / z);
@@ -2125,6 +2471,7 @@
         head.removeEventListener("pointermove", move);
         head.removeEventListener("pointerup", up);
         el.classList.remove("dragging");
+        boardBusy--;
         // Bring to front.
         b.notes.splice(b.notes.indexOf(n), 1);
         b.notes.push(n);
@@ -2134,25 +2481,45 @@
       head.addEventListener("pointermove", move);
       head.addEventListener("pointerup", up);
     });
-    const el = h("div", { class: `sl-note sl-note-${n.color}${r.ms < 86400e3 ? " expiring" : ""}`, "data-note": n.id, style: `left:${n.x}px;top:${n.y}px` },
-      head, text,
-      h("div", { class: "sl-note-life" }, h("div", { class: "sl-note-life-bar", style: `width:${(r.ratio * 100).toFixed(2)}%` })));
+    const state = r.expired ? " expired" : r.ms < DAY && !n.snoozed ? " expiring" : "";
+    const el = h("div", {
+      class: `sl-note sl-note-${NOTE_COLORS.includes(n.color) ? n.color : "yellow"}${state}${n.id === selectedId ? " sl-selected" : ""}`,
+      "data-note": n.id, style: `left:${n.x}px;top:${n.y}px`,
+    },
+    head, text,
+    h("div", { class: "sl-note-life" }, h("div", { class: "sl-note-life-bar", style: `width:${(r.ratio * 100).toFixed(2)}%` })));
+    // Clicking a note selects it (style bar), without stealing the focus from its text.
+    el.addEventListener("pointerdown", () => { if (selectedId !== n.id) select(n.id); });
     setTimeout(grow, 0);
     return el;
   }
 
   function renderBoard() {
     if (!boardOpen) return;
-    purgeNotes();
     const ws = curWs(), b = board(ws);
     positionBoard();
     boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name}`;
+    boardWrap.lifeEl.textContent = `Notes: ${(LIFETIMES.find(([ms]) => ms === noteLifetime())?.[1] || span(noteLifetime())).toLowerCase()}`;
     boardWrap.classList.toggle("blank", isBlank(gBrowser.selectedTab));
+    if (selectedId && !b.notes.some(n => n.id === selectedId) && !b.items.some(i => i.id === selectedId)) selectedId = null;
     const focused = doc.activeElement?.closest?.(".sl-note")?.dataset.note;
-    boardWorld.replaceChildren(...b.notes.map(noteEl));
+    renderShapes();
+    boardWorld.replaceChildren(boardSvg, ...b.items.filter(i => i.kind === "text").map(textEl), ...b.notes.map(noteEl));
     if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
     boardWrap.apply();
-    boardWrap.classList.toggle("empty", !b.notes.length);
+    boardWrap.classList.toggle("empty", !b.notes.length && !b.items.length);
+    drawStyleBar();
+  }
+
+  /* Sidebar renders refresh the board, except while something on it is being edited or dragged. */
+  function refreshBoard() {
+    const a = doc.activeElement;
+    if (boardBusy || (a && boardWorld.contains(a) && (a.localName === "textarea" || a.isContentEditable))) {
+      positionBoard();
+      tickBoard();
+      return;
+    }
+    renderBoard();
   }
 
   /* The board covers the page area exactly. */
@@ -2161,16 +2528,16 @@
     for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) boardWrap.style.setProperty(`--bd-${k}`, v + "px");
   }
 
-  /* Refreshes countdowns without rebuilding (keeps typing undisturbed). */
+  /* Refreshes countdowns and alerts without rebuilding (keeps typing undisturbed). */
   function tickBoard() {
-    if (purgeNotes()) return renderBoard();
     for (const n of board().notes) {
       const el = boardWorld.querySelector(`[data-note="${n.id}"]`);
       if (!el) continue;
       const r = remaining(n);
       el.querySelector(".sl-note-time").textContent = r.label;
       el.querySelector(".sl-note-life-bar").style.width = `${(r.ratio * 100).toFixed(2)}%`;
-      el.classList.toggle("expiring", r.ms < 86400e3);
+      el.classList.toggle("expiring", !r.expired && r.ms < DAY && !n.snoozed);
+      el.classList.toggle("expired", r.expired);
     }
   }
 
@@ -2182,9 +2549,11 @@
     clearTimeout(boardHideTimer);
     boardWrap.classList.remove("sl-closing");
     boardWrap.hidden = false;
+    setTool("select");
     renderBoard();
+    boardView.focus({ preventScroll: true });
     clearInterval(boardTimer);
-    boardTimer = setInterval(tickBoard, 60e3);
+    boardTimer = setInterval(tickBoard, 30e3);
     render();
   }
 
@@ -2198,6 +2567,7 @@
       return;
     }
     boardOpen = false;
+    selectedId = null;
     // Fades out, then hides (unless it was reopened meanwhile).
     boardWrap.classList.add("sl-closing");
     clearTimeout(boardHideTimer);
@@ -2456,7 +2826,8 @@
     // A Little Sillage window restored from the previous session.
     if (!little && SessionStore.getCustomWindowValue(window, "sillage-little")) enterLittle();
     if (little) { log("Little Sillage window ready"); return; }
-    purgeNotes();
+    // Notes expire while Sillage runs: the alerts in the sidebar follow.
+    setInterval(render, 60e3);
     for (const t of gBrowser.tabs) if (alive(t) && !tabWs(t)) setVal(t, WS_KEY, activeWs);
     // Firefox's native pinned tabs cannot be hidden, so unpin them.
     for (const t of [...gBrowser.tabs]) if (t.pinned) gBrowser.unpinTab(t);
@@ -2499,7 +2870,8 @@
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
-      openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
+      openBoard, closeBoard, addNote, addText, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
+      get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },
       openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
     },
   };

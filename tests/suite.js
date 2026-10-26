@@ -366,22 +366,72 @@
     ok(S.palResults[0]?.kind === "search", "no autofill for multi-word searches");
     S.closePalette();
 
-    // --- board: sticky notes with a 7-day lifetime
+    // --- board: sticky notes (7-day lifetime by default), free text and shapes
     S.openBoard();
     ok(S.boardOpen && !document.getElementById("sl-board-wrap").hidden, "board opens over the page");
     const note = S.addNote(40, 40, "Buy milk");
     S.renderNow();
-    const noteDom = document.querySelector(`[data-note="${note.id}"]`);
-    ok(!!noteDom && noteDom.querySelector("textarea").value === "Buy milk", "note rendered on the board");
-    ok(/^6d 23h left$|^7d 0h left$/.test(noteDom.querySelector(".sl-note-time").textContent), "note shows its countdown", noteDom.querySelector(".sl-note-time").textContent);
-    ok(parseFloat(noteDom.querySelector(".sl-note-life-bar").style.width) > 99, "lifetime bar starts full");
+    const noteDom = () => document.querySelector(`[data-note="${note.id}"]`);
+    ok(!!noteDom() && noteDom().querySelector("textarea").value === "Buy milk", "note rendered on the board");
+    ok(/^6d 23h left$|^7d 0h left$/.test(noteDom().querySelector(".sl-note-time").textContent), "note shows its countdown", noteDom().querySelector(".sl-note-time").textContent);
+    ok(parseFloat(noteDom().querySelector(".sl-note-life-bar").style.width) > 99, "lifetime bar starts full");
+    S.renewNote(note, 86400e3);
+    ok(note.lifetime === 86400e3 && /^23h|^1d 0h/.test(noteDom().querySelector(".sl-note-time").textContent), "a note's lifetime can be changed", noteDom().querySelector(".sl-note-time").textContent);
+    S.renewNote(note, 0);
+    ok(note.expires === null && noteDom().querySelector(".sl-note-time").textContent === "No expiry", "a note can be kept without expiry");
+    S.D.settings.noteLifetime = 3 * 86400e3;
+    const n3 = S.addNote(600, 40, "three days");
+    ok(n3.lifetime === 3 * 86400e3 && n3.expires - Date.now() > 2.9 * 86400e3, "default lifetime of new notes is configurable");
+    delete S.D.settings.noteLifetime;
+    S.deleteBoardItem(n3.id);
     const old2 = S.addNote(300, 40, "old");
     old2.expires = Date.now() - 1000;
-    S.purgeNotes();
-    ok(!S.board().notes.includes(old2) && S.board().notes.includes(note), "expired notes disappear");
     S.renderNow();
+    const oldDom = () => document.querySelector(`[data-note="${old2.id}"]`);
+    ok(S.board().notes.includes(old2) && oldDom()?.classList.contains("expired") && getComputedStyle(oldDom().querySelector(".sl-note-alert")).display !== "none",
+      "expired notes are kept, with a red alert");
     const orb = document.getElementById("sl-orb");
-    ok(!!orb && orb.closest(".sl-divider") && orb.querySelector(".sl-orb-count").textContent === "1", "orb sits on the divider and shows the note count");
+    ok(!!orb && orb.closest(".sl-divider") && orb.classList.contains("alert") && orb.querySelector(".sl-orb-count").textContent === "1",
+      "orb sits on the divider and shows the alert");
+    ok(document.querySelector(`.sl-ws-dot[data-ws="${S.activeWs}"]`).classList.contains("alert"), "the workspace icon shows the alert too");
+    S.snoozeNote(old2, 3600e3);
+    S.renderNow();
+    ok(!oldDom().classList.contains("expired") && /^Reminder in/.test(oldDom().querySelector(".sl-note-time").textContent) && !orb.classList.contains("alert"),
+      "remind me later silences the alert");
+    S.deleteBoardItem(old2.id);
+    // Free text and shapes, with styles
+    const txt = S.addText(100, 300, "Hello board");
+    const txtDom = document.querySelector(`.sl-btext[data-item="${txt.id}"]`);
+    ok(!!txtDom && txtDom.textContent === "Hello board", "free text on the board");
+    S.select(txt.id);
+    const styleBar = document.getElementById("sl-board-style");
+    ok(!styleBar.hidden && [...styleBar.querySelectorAll(".sl-bs-choice")].some(b => b.textContent === "Mono"), "selecting a text shows its font and size");
+    [...styleBar.querySelectorAll(".sl-bs-choice")].find(b => b.textContent === "XL").click();
+    [...styleBar.querySelectorAll(".sl-bs-choice")].find(b => b.textContent === "Serif").click();
+    styleBar.querySelector('.sl-bs-swatch[title="red"]').click();
+    const txtDom2 = document.querySelector(`.sl-btext[data-item="${txt.id}"]`);
+    ok(txt.size === "XL" && txt.font === "serif" && txt.color === "red" && txtDom2.style.fontSize === "32px", "text size, font and color can be changed");
+    const view = document.getElementById("sl-board-view");
+    const drag = (tool, x1, y1, x2, y2) => {
+      S.setTool(tool);
+      const r = view.getBoundingClientRect();
+      const ev = (type, x, y) => view.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, pointerId: 1, clientX: r.left + x, clientY: r.top + y }));
+      ev("pointerdown", x1, y1); ev("pointermove", x2, y2); ev("pointerup", x2, y2);
+    };
+    for (const k of ["line", "arrow", "rect", "ellipse"]) drag(k, 400, 300, 520, 380);
+    const shapes = S.board().items.filter(i => i.kind !== "text");
+    ok(["line", "arrow", "rect", "ellipse"].every(k => shapes.some(i => i.kind === k)) && document.querySelectorAll("#sl-board-svg .sl-shape").length === 4,
+      "line, arrow, rectangle and ellipse can be drawn");
+    const rect = shapes.find(i => i.kind === "rect");
+    ok(rect.x2 - rect.x1 > 50 && rect.y2 - rect.y1 > 30, "shape takes the dragged size", JSON.stringify(rect));
+    S.select(rect.id);
+    document.querySelector('#sl-board-style .sl-bs-group:nth-child(2) .sl-bs-swatch[title="blue"]').click();
+    ok(rect.fill === "blue" && document.querySelectorAll("#sl-board-svg .sl-handle").length === 4, "shapes can be filled; selection shows resize handles");
+    S.select(rect.id);
+    document.getElementById("sl-board-wrap").dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    ok(!S.board().items.includes(rect), "Delete removes the selection");
+    for (const i of [...S.board().items]) S.deleteBoardItem(i.id);
+    S.renderNow();
     S.closeBoard();
     ok(!S.boardOpen && await until(() => document.getElementById("sl-board-wrap").hidden, 2000), "board closes (after fading out)");
     S.openBoard();
