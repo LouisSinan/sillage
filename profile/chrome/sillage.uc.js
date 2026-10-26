@@ -353,7 +353,8 @@
 
   function cycleStep(dir) {
     if (!cycling) {
-      cycleList = mru.filter(t => alive(t) && !isBlank(t));
+      // Only the tabs of the current workspace (its own tabs and its profile's favorites).
+      cycleList = mru.filter(t => alive(t) && !isBlank(t) && inView(t));
       if (cycleList[0] !== gBrowser.selectedTab) cycleList.unshift(gBrowser.selectedTab);
       if (cycleList.length < 2) return;
       cycling = true;

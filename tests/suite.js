@@ -115,7 +115,7 @@
     ok(c.hidden && !b2.hidden, "visibility swapped after switching");
     keydown({ key: "ArrowRight", code: "ArrowRight", ctrlKey: true, shiftKey: true });
     window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control", bubbles: true }));
-    ok(S.activeWs === ws2 && sel() === c, "recent tabs work across workspaces");
+    ok(S.activeWs === ws1 && sel() !== c && S.inView(sel()), "recent tabs stay within the current workspace");
     S.switchWs(ws1);
     const ctrlArrow = key => keydown({ key, code: key, ctrlKey: true });
     ctrlArrow("ArrowRight");

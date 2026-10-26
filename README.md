@@ -24,7 +24,7 @@ Firefox.
   icons: right-click an icon → *Hide in the … profile*, or use the palette to hide or show one.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
   suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match.
-- **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling with page
+- **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling through the current workspace, with page
   thumbnails; the tab opens when the keys are released.
 - **Board**: each workspace has an infinite canvas of sticky notes. Notes last 7 days, with a countdown
   and a shrinking lifetime bar, and can be renewed. Open it with the Sillage orb in the middle of the
