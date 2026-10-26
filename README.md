@@ -102,8 +102,8 @@ Firefox's user interface is written in HTML, CSS and JavaScript. At startup, Fir
 autoconfig file from its installation directory with chrome privileges. Sillage uses it to load
 `profile/chrome/sillage.uc.js` into every browser window, which builds the sidebar, moves the native
 navigation toolbar into it and hides the native tab strip. Workspaces rely on Firefox's tab hiding, and
-each tab's workspace is stored as a session-store value, so it survives restarts. Profiles map to
-Firefox containers.
+each tab's workspace is stored as a session-store value, so it survives restarts. Each profile is a
+separate Firefox profile running as its own instance.
 
 A Firefox release can occasionally change internals the interface depends on. Browsing keeps working
 in that case, and `make test` shows what needs attention.
@@ -124,15 +124,16 @@ The interface reloads with Sillage: edit `profile/chrome/`, then restart it. Log
 
 ## Profiles
 
-Create one from the palette (**New profile**) or from the workspace editor. Each profile lives in its own
+Create one from the palette (**New profile**). Each profile lives in its own
 Firefox profile directory next to the default one (`profiles/<id>/`) and runs as its own Firefox instance,
 so extensions, passwords, history, cookies and the Firefox Account are fully separate.
 
 - The sidebar shows the workspaces of all profiles, grouped by profile. Choosing a workspace of another
-  profile (click, <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd>, palette) starts that
-  profile's window or brings it to the front.
-- Tabs and whole workspaces can be moved to another profile (drag a tab onto its workspace, the tab menu,
-  or the workspace editor); they reopen there, signed in with that profile's accounts.
+  profile (click, <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, palette) starts that profile's window or brings it to the
+  front. <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd> and swipes stay within the current profile.
+- New workspaces are created in the current window. Tabs and whole workspaces can be moved to another profile
+  (drag a tab onto its workspace, the tab menu, or **Edit workspace**); they reopen there, signed in with that
+  profile's accounts.
 - To sync a profile across devices, sign in to a Firefox Account in its window. Using a separate account per
   profile keeps profiles separate on every device; an email alias (`you+work@example.com`) is enough.
   The list of profiles itself travels with the default profile, so other devices offer the same profiles.

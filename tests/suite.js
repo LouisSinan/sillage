@@ -173,6 +173,11 @@
     ok(S.sidebarVisible === !vis && document.documentElement.classList.contains("sl-hidden"), "Ctrl+S hides the sidebar");
     S.runCommand("toggle-sidebar");
     ok(!document.documentElement.classList.contains("sl-hidden"), "Ctrl+S shows it again");
+    const sideEl = document.getElementById("sl-sidebar");
+    ok(document.documentElement.classList.contains("sl-anim") && getComputedStyle(sideEl).transitionProperty.includes("margin-left"),
+      "showing / hiding the sidebar slides");
+    ok(await until(() => !document.documentElement.classList.contains("sl-anim"), 2000) && getComputedStyle(sideEl).transitionProperty === "all",
+      "no layout animation outside a toggle (resizing stays immediate)");
 
     // --- the sidebar toggle only affects the active window
     const win2 = OpenBrowserWindow();
@@ -348,7 +353,7 @@
     const orb = document.getElementById("sl-orb");
     ok(!!orb && orb.closest(".sl-divider") && orb.querySelector(".sl-orb-count").textContent === "1", "orb sits on the divider and shows the note count");
     S.closeBoard();
-    ok(!S.boardOpen && document.getElementById("sl-board-wrap").hidden, "board closes");
+    ok(!S.boardOpen && await until(() => document.getElementById("sl-board-wrap").hidden, 2000), "board closes (after fading out)");
 
     // --- Little Sillage: links from other apps open in a small window
     const before2 = [...Services.wm.getEnumerator("navigator:browser")].length;
@@ -399,6 +404,23 @@
     ok(!tx.isConnected && (await readInbox()).some(a => a.type === "open" && a.urls.includes("https://example.com/?tx")),
       "a tab moved to another profile reopens there");
     ok(!S.D.profiles.some(p => p.id === acme.id), "other profiles are not part of this instance's data");
+    // Stepping through workspaces (keys, swipe) stays in this window's profile.
+    const ownLast = S.D.workspaces[S.D.workspaces.length - 1].id;
+    S.switchWs(ownLast);
+    const nLaunched = launched.length;
+    S.stepWs(1);
+    await wait(300);
+    ok(S.activeWs === ownLast && launched.length === nLaunched, "next workspace never jumps to another profile's window");
+    // The workspace editor creates workspaces in this window, whatever profiles exist.
+    S.runCommand("new-ws");
+    const wsfField = document.getElementById("sl-wsf-profile").parentNode;
+    ok(wsfField.style.display === "none", "new workspace: no profile choice");
+    document.getElementById("sl-wsf-name").value = "Editor WS";
+    [...document.querySelectorAll("#sl-wsf .sl-actions button")].find(b => b.textContent === "Save").click();
+    await wait(300);
+    const edWs = S.D.workspaces.find(w => w.name === "Editor WS");
+    ok(!!edWs && S.activeWs === edWs.id && launched.length === nLaunched, "a new workspace opens in this window");
+    await S.deleteWs(edWs.id, { confirm: false });
 
     // Hand-over received from another instance: workspace with tabs, and cookies.
     const selfEntry = { id: "default", dir: PathUtils.filename(PathUtils.profileDir) };

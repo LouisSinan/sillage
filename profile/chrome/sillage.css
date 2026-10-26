@@ -1,8 +1,14 @@
 /* Sillage — interface stylesheet (loaded into the Firefox browser window). */
 
+/* The workspace hue is animated when switching workspaces (the script picks the shortest way round). */
+@property --sl-h { syntax: "<number>"; inherits: true; initial-value: 250; }
+
 :root.sillage {
   --sl-h: 250;
   --sl-w: 270px;
+  --sl-ease: cubic-bezier(.32, .72, 0, 1);
+  --sl-dur: .28s;
+  transition: --sl-h .4s ease;
   --sl-bg1: hsl(var(--sl-h) 32% 19%);
   --sl-bg2: hsl(calc(var(--sl-h) + 45) 36% 12%);
   --sl-fg: hsl(var(--sl-h) 25% 94%);
@@ -93,8 +99,20 @@
   overflow-clip-margin: 10px;
 }
 :root.sillage #browser { overflow: clip; }
-:root.sl-hidden #sl-sidebar { margin-left: calc(-1 * var(--sl-w)); visibility: hidden; pointer-events: none; }
+:root.sl-hidden #sl-sidebar { margin-left: calc(-1 * var(--sl-w)); visibility: hidden; opacity: 0; pointer-events: none; }
+/* Showing / hiding the sidebar (only while toggling: the class is set for the duration of the animation).
+   The page widens as the sidebar slides out; visibility flips once the slide is over. */
+:root.sl-anim #sl-sidebar {
+  transition: margin-left var(--sl-dur) var(--sl-ease), opacity var(--sl-dur) var(--sl-ease), visibility 0s;
+}
+:root.sl-anim.sl-hidden #sl-sidebar {
+  transition: margin-left var(--sl-dur) var(--sl-ease), opacity calc(var(--sl-dur) * .7) ease, visibility 0s var(--sl-dur);
+}
+:root.sl-anim #tabbrowser-tabbox {
+  transition: margin var(--sl-dur) var(--sl-ease), border-radius var(--sl-dur) var(--sl-ease), box-shadow var(--sl-dur);
+}
 :root.sl-hidden.sl-peek #sl-sidebar {
+  animation: sl-peek-in .22s var(--sl-ease);
   visibility: visible;
   position: fixed; top: 8px; bottom: 8px; left: 8px; z-index: 50;
   margin-left: 0; opacity: 1; pointer-events: auto;
@@ -102,6 +120,9 @@
   background: radial-gradient(140% 100% at 0% 0%, var(--sl-bg1), var(--sl-bg2));
   box-shadow: 0 12px 40px hsl(0 0% 0% / .45), 0 0 0 1px var(--sl-panel-line);
 }
+:root.sl-hidden.sl-peek.sl-peek-out #sl-sidebar { animation: sl-peek-out .16s ease-in forwards; pointer-events: none; }
+@keyframes sl-peek-in { from { transform: translateX(calc(-100% - 16px)); opacity: .6; } }
+@keyframes sl-peek-out { to { transform: translateX(calc(-100% - 16px)); opacity: .6; } }
 :root[inDOMFullscreen] #sl-sidebar { display: none; }
 /* Fullscreen (F11 or window manager): Firefox hides its navigation toolbox with a negative top margin,
    which would shift the whole sidebar up. Prevent it; Sillage behaves as outside fullscreen
@@ -160,10 +181,10 @@
 :root.sillage #unified-extensions-button { order: 103; margin-inline-end: -68px !important; }
 
 #sl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: none; }
-#sl-scroll.sl-slide-l { animation: sl-slide-l .22s ease-out; }
-#sl-scroll.sl-slide-r { animation: sl-slide-r .22s ease-out; }
-@keyframes sl-slide-l { from { transform: translateX(-24px); opacity: 0; } }
-@keyframes sl-slide-r { from { transform: translateX(24px); opacity: 0; } }
+#sl-scroll.sl-slide-l { animation: sl-slide-l .3s var(--sl-ease); }
+#sl-scroll.sl-slide-r { animation: sl-slide-r .3s var(--sl-ease); }
+@keyframes sl-slide-l { from { transform: translateX(-28px); opacity: 0; } }
+@keyframes sl-slide-r { from { transform: translateX(28px); opacity: 0; } }
 
 .sl-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
 .sl-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -175,7 +196,8 @@
 #sl-favorites { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 6px; margin-bottom: 10px; }
 #sl-favorites:empty { display: none; }
 :root.sl-is-dragging #sl-favorites:empty { display: block; height: 40px; border: 1.5px dashed var(--sl-line); border-radius: 10px; }
-.sl-fav-tile { height: 44px; display: grid; place-items: center; border-radius: 10px; background: var(--sl-hover); position: relative; }
+.sl-fav-tile { height: 44px; display: grid; place-items: center; border-radius: 10px; background: var(--sl-hover); position: relative; transition: background-color .12s ease, transform .12s ease; }
+.sl-fav-tile:active { transform: scale(.95); }
 .sl-fav-tile:hover { background: var(--sl-active); }
 .sl-fav-tile.active { background: var(--sl-active); box-shadow: var(--sl-shadow), inset 0 0 0 1.5px var(--sl-accent); }
 .sl-fav-tile .sl-fav { width: 20px; height: 20px; }
@@ -191,7 +213,12 @@
   display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 5px 0 10px; border-radius: 9px;
   position: relative; white-space: nowrap; color: var(--sl-fg);
 }
+.sl-row { transition: background-color .12s ease; }
 .sl-row:hover { background: var(--sl-hover); }
+.sl-row:active:not(.sl-folder-head) { transform: scale(.985); }
+/* A tab that just opened slides into the list. */
+.sl-row.sl-enter { animation: sl-enter .24s var(--sl-ease); }
+@keyframes sl-enter { from { opacity: 0; transform: translateY(-6px); } }
 .sl-row.active { background: var(--sl-active); box-shadow: var(--sl-shadow); }
 .sl-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .sl-row.unloaded .sl-title { color: var(--sl-fg-dim); }
@@ -200,6 +227,7 @@
   border: none; background: none; color: var(--sl-fg-dim); appearance: none;
 }
 .sl-rbtn .sl-icon { width: 14px; height: 14px; }
+.sl-rbtn { transition: background-color .1s ease, color .1s ease; }
 .sl-rbtn:hover { background: var(--sl-hover); color: var(--sl-fg); }
 .sl-row:hover .sl-rbtn, .sl-rbtn.on { display: grid; }
 .sl-row.unloaded .sl-rbtn[data-act="close"] { display: none; }
@@ -211,9 +239,10 @@
 @keyframes sl-spin { to { transform: rotate(360deg); } }
 
 .sl-folder-head { color: var(--sl-fg-dim); }
-.sl-chev { width: 12px; height: 12px; transition: transform .15s; }
+.sl-chev { width: 12px; height: 12px; transition: transform .2s var(--sl-ease); }
 .sl-folder-head.open .sl-chev { transform: rotate(90deg); }
 .sl-folder-body { padding-left: 14px; }
+.sl-folder-body.sl-enter { animation: sl-enter .22s var(--sl-ease); }
 .sl-folder-body:empty::before { content: "Empty"; display: block; padding: 6px 12px; color: var(--sl-fg-faint); font-size: 12px; }
 
 #sl-pinned:empty::before { content: "Drag a tab here to pin it"; display: block; padding: 8px 10px; color: var(--sl-fg-faint); font-size: 12px; }
@@ -271,8 +300,10 @@
   width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: none; background: none;
   color: var(--sl-fg-dim); padding: 0; margin: 0; appearance: none;
 }
+.sl-btn { transition: background-color .12s ease, color .12s ease; }
 .sl-btn:hover { background: var(--sl-hover); color: var(--sl-fg); }
-.sl-ws-dot { font-size: 15px; filter: grayscale(.7); opacity: .55; transition: opacity .15s, filter .15s, transform .15s; }
+.sl-ws-dot { font-size: 15px; filter: grayscale(.7); opacity: .55; transition: opacity .15s, filter .15s, transform .15s, background-color .15s; }
+.sl-ws-dot:active { transform: scale(.9); }
 .sl-ws-dot:hover { opacity: .9; filter: none; background: var(--sl-hover); }
 .sl-ws-dot.active { opacity: 1; filter: none; background: var(--sl-hover); }
 .sl-ws-dot.sl-drop-into { transform: scale(1.15); }
@@ -394,6 +425,10 @@
   background: hsl(var(--sl-h) 20% 96%); color: hsl(var(--sl-h) 30% 15%); font: menu; font-size: 13px;
 }
 #sl-board-wrap[hidden] { display: none; }
+#sl-board-wrap { animation: sl-board-in .2s var(--sl-ease); }
+#sl-board-wrap.sl-closing { animation: sl-board-out .14s ease-in forwards; pointer-events: none; }
+@keyframes sl-board-in { from { opacity: 0; transform: scale(.985); } }
+@keyframes sl-board-out { to { opacity: 0; transform: scale(.985); } }
 @media (prefers-color-scheme: dark) { #sl-board-wrap { background: hsl(var(--sl-h) 16% 12%); color: var(--sl-fg); } }
 #sl-board-bar {
   display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 16px; flex: none;
@@ -433,6 +468,8 @@
   position: absolute; width: 220px; border-radius: 6px 6px 10px 10px; overflow: hidden; color: hsl(40 30% 15%);
   box-shadow: 0 1px 2px hsl(0 0% 0% / .15), 0 6px 18px hsl(0 0% 0% / .14); cursor: default;
 }
+.sl-note.sl-enter { animation: sl-note-in .22s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes sl-note-in { from { opacity: 0; transform: scale(.85); } }
 .sl-note.dragging { box-shadow: 0 4px 8px hsl(0 0% 0% / .18), 0 16px 36px hsl(0 0% 0% / .22); transform: rotate(-1deg); }
 .sl-note-yellow { background: hsl(50 95% 78%); }
 .sl-note-pink   { background: hsl(340 85% 85%); }
@@ -474,3 +511,8 @@
 #sl-little-bar .sl-little-more { padding: 0 6px; }
 #sl-little-bar .sl-little-more .sl-icon { transform: rotate(90deg); width: 14px; height: 14px; }
 #sl-little-bar .sl-little-close { padding: 0 6px; }
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root.sillage, :root.sillage *:not(.sl-spin) { transition-duration: 0s !important; transition-delay: 0s !important; animation-duration: 0s !important; }
+}

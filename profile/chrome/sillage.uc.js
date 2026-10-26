@@ -112,7 +112,8 @@
         const def = defaults();
         d = migrate(Object.assign(def, d || {}));
         d.settings = Object.assign(defaults().settings, d.settings);
-        if (!d.workspaces.length) d.workspaces = def.workspaces;
+        // (def is the object returned by Object.assign above: take fresh defaults.)
+        if (!Array.isArray(d.workspaces) || !d.workspaces.length) d.workspaces = defaults().workspaces;
         // This instance's profile. Container-based profiles from older versions stay in d.profiles
         // until they are migrated to real profiles (see migrateContainerProfiles).
         const me = await Profiles.identify();
@@ -373,10 +374,10 @@
   }
 
   /* Actions sent by other instances (see Profiles.sendToInbox). */
-  let inboxBusy = false;
   async function processInbox() {
-    if (inboxBusy || little) return;
-    inboxBusy = true;
+    // Shared by the windows of this instance, so that an action is never applied twice.
+    if (shared.inboxBusy || little) return;
+    shared.inboxBusy = true;
     try {
       const actions = await Profiles.takeInbox();
       let target = null;
@@ -393,6 +394,9 @@
           target ||= wsId;
         } else if (a.type === "switch" && wsById(a.ws)) {
           target = a.ws;
+        } else if (a.type === "favorites" && Array.isArray(a.items)) {
+          const favs = profById(D.self).favorites;
+          for (const it of a.items) if (!favs.some(f => f.id === it.id || f.url === it.url)) favs.push(it);
         } else if (a.type === "cookies") {
           importCookies(a.cookies || []);
         } else if (a.type === "history" && Array.isArray(a.entries)) {
@@ -405,7 +409,7 @@
         render();
         Profiles.raise(window);
       }
-    } catch (e) { log("inbox " + e); } finally { inboxBusy = false; }
+    } catch (e) { log("inbox " + e); } finally { shared.inboxBusy = false; }
   }
 
   function importCookies(list) {
@@ -421,11 +425,12 @@
   }
 
   /* Previous / next workspace across all profiles (no wrap-around). */
+  /* Previous / next workspace of this profile. Stepping never leaves the profile: another profile runs in
+     its own window, which only an explicit choice (click, Ctrl+n, palette) should bring up. */
   function stepWs(dir) {
-    const all = allWorkspaces();
-    const i = all.findIndex(w => w.id === activeWs);
-    const next = all[i + dir];
-    if (next) goToWorkspace(next.id);
+    const i = D.workspaces.findIndex(w => w.id === activeWs);
+    const next = D.workspaces[i + dir];
+    if (next) switchWs(next.id);
   }
 
   function selectTab(t) {
@@ -798,8 +803,17 @@
     for (const p of legacy) {
       try {
         const workspaces = D.workspaces.filter(w => w.profile === p.id).map(w => JSON.parse(JSON.stringify(w)));
-        const entry = await Profiles.createProfile(p.name, null);
-        await IOUtils.writeJSON(PathUtils.join(Profiles.profileDir(entry), "sillage.json"), profileSeed(entry.id, p.name, workspaces, p.favorites));
+        // Another device may have migrated it already (the registry is synced): reuse that profile.
+        const known = registry.profiles.find(e => e.id !== D.self && e.name.toLowerCase() === p.name.toLowerCase());
+        const entry = known || await Profiles.createProfile(p.name, null);
+        const dataPath = PathUtils.join(Profiles.profileDir(entry), "sillage.json");
+        if (known && await IOUtils.exists(dataPath)) {
+          for (const w of workspaces) await Profiles.sendToInbox(entry, { type: "workspace", ws: w });
+          if (p.favorites.length) await Profiles.sendToInbox(entry, { type: "favorites", items: p.favorites });
+        } else {
+          await Profiles.ensureProfileDir(entry);
+          await IOUtils.writeJSON(dataPath, profileSeed(entry.id, p.name, workspaces, p.favorites));
+        }
         for (const w of workspaces) {
           const urls = gBrowser.tabs.filter(t => alive(t) && tabWs(t) === w.id && !tabItemId(t) && !isBlank(t)).map(tabUrl);
           if (urls.length) await Profiles.sendToInbox(entry, { type: "open", ws: w.id, urls });
@@ -924,8 +938,9 @@
     const title = r?.item.customTitle || t.label || host(tabUrl(t));
     const drifted = r && r.item.url && tabUrl(t) && tabUrl(t) !== r.item.url && !t.hasAttribute("pending");
     const audio = t.hasAttribute("soundplaying") || t.hasAttribute("muted");
+    const enter = freshTabs.delete(t);
     return h("div", {
-      class: `sl-row sl-tab${t.selected ? " active" : ""}${t.hasAttribute("pending") ? " unloaded" : ""}`,
+      class: `sl-row sl-tab${t.selected ? " active" : ""}${t.hasAttribute("pending") ? " unloaded" : ""}${enter ? " sl-enter" : ""}`,
       draggable: "true", "data-tab": tabId(t), "data-item": r?.item.id, "data-list": list, "data-index": index,
       "data-folder": extra.folder, title: `${title}\n${tabUrl(t)}`,
     },
@@ -948,6 +963,8 @@
   }
 
   let renderQueued = false, renderPending = false, dragging = null, editing = false;
+  const freshTabs = new WeakSet(); // opened since the last render: animated once
+  const openedFolders = new Set(); // folders just opened: their content slides in once
   function render() {
     if (renderQueued) return;
     renderQueued = true;
@@ -965,7 +982,7 @@
     for (const el of [side, $("#browser"), doc.documentElement, doc.body]) if (el && el.scrollTop) el.scrollTop = 0;
     tabsById.clear();
     const ws = curWs(), prof = curProf();
-    doc.documentElement.style.setProperty("--sl-h", ws.hue);
+    setHue(ws.hue);
     doc.documentElement.style.setProperty("--sl-w", D.settings.sidebarWidth + "px");
     doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
 
@@ -987,7 +1004,7 @@
       return h("div", { class: "sl-folder" },
         h("div", { class: `sl-row sl-folder-head${n.open ? " open" : ""}`, draggable: "true", "data-folder-id": n.id, "data-index": i },
           icon("chev", "sl-chev"), icon("folder"), h("span", { class: "sl-title", text: n.name })),
-        n.open && h("div", { class: "sl-folder-body" }, n.children.map((it, k) => rowForItem(it, "pinned", k, n.id))));
+        n.open && h("div", { class: `sl-folder-body${openedFolders.delete(n.id) ? " sl-enter" : ""}` }, n.children.map((it, k) => rowForItem(it, "pinned", k, n.id))));
     }));
 
     todayBox.replaceChildren(...todayTabs(ws.id).filter(t => !isBlank(t)).map((t, i) => rowForTab(t, "today", i)));
@@ -1019,6 +1036,16 @@
     }
   }
 
+  /* Sets the workspace hue, taking the shortest way round the color wheel for the transition. */
+  let shownHue = null;
+  function setHue(hue) {
+    hue = +hue || 0;
+    if (shownHue != null) hue += Math.round((shownHue - hue) / 360) * 360;
+    if (hue === shownHue) return;
+    shownHue = hue;
+    doc.documentElement.style.setProperty("--sl-h", hue);
+  }
+
   function slide(right) {
     scroll.classList.remove("sl-slide-l", "sl-slide-r");
     void scroll.offsetWidth;
@@ -1034,11 +1061,22 @@
     toast.t = setTimeout(() => toastEl.classList.remove("show"), ms);
   }
 
+  /* Animates layout changes of the sidebar for the duration of one transition. */
+  function animateLayout() {
+    const root = doc.documentElement;
+    root.classList.add("sl-anim");
+    clearTimeout(animateLayout.t);
+    animateLayout.t = setTimeout(() => root.classList.remove("sl-anim"), 360);
+  }
+
   function toggleSidebar() {
+    // Pinning a peeked sidebar: it is already in view, no slide.
+    const peeking = doc.documentElement.classList.contains("sl-peek");
     sidebarVisible = !sidebarVisible;
     D.settings.sidebarVisible = sidebarVisible;
+    if (!peeking) animateLayout();
     doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
-    endPeek();
+    endPeek({ instant: true });
     save();
     render();
   }
@@ -1053,7 +1091,7 @@
       const dot = e.target.closest(".sl-ws-dot");
       if (dot) return goToWorkspace(dot.dataset.ws);
       const fh = e.target.closest(".sl-folder-head");
-      if (fh) { const r = findFolder(fh.dataset.folderId); if (r) { r.f.open = !r.f.open; save(); render(); } return; }
+      if (fh) { const r = findFolder(fh.dataset.folderId); if (r) { r.f.open = !r.f.open; if (r.f.open) openedFolders.add(r.f.id); save(); render(); } return; }
       const row = rowTarget(e);
       if (!row) return;
       const t = rowTab(row);
@@ -1091,17 +1129,20 @@
     });
 
     // Horizontal swipe (touchpad) switches workspaces.
-    let acc = 0, lockUntil = 0;
+    // One step per gesture: after a step, wheel events are ignored until they stop for a moment
+    // (macOS trackpads keep sending momentum events long after the fingers lift).
+    let acc = 0, spent = false, lastWheel = 0;
     side.addEventListener("wheel", e => {
+      const now = Date.now();
+      if (now - lastWheel > 250) { acc = 0; spent = false; }
+      lastWheel = now;
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || e.target.closest("#navigator-toolbox")) return;
       e.preventDefault();
-      if (Date.now() < lockUntil) return;
-      acc += e.deltaX;
+      if (spent) return;
+      acc += e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX;
       if (Math.abs(acc) < 120) return;
-      const dir = Math.sign(acc);
-      acc = 0;
-      lockUntil = Date.now() + 450;
-      stepWs(dir);
+      spent = true;
+      stepWs(Math.sign(acc));
     }, { passive: false });
 
     wireDnd();
@@ -1265,9 +1306,16 @@
   function wirePeek() {
     peekZone.addEventListener("mouseenter", () => {
       clearTimeout(peekTimer);
+      clearTimeout(peekOutTimer);
+      doc.documentElement.classList.remove("sl-peek-out");
       doc.documentElement.classList.add("sl-peek");
     });
-    side.addEventListener("mouseenter", () => clearTimeout(peekTimer));
+    side.addEventListener("mouseenter", () => {
+      clearTimeout(peekTimer);
+      if (!doc.documentElement.classList.contains("sl-peek-out")) return;
+      clearTimeout(peekOutTimer);
+      doc.documentElement.classList.remove("sl-peek-out");
+    });
     side.addEventListener("mouseleave", () => {
       if (!doc.documentElement.classList.contains("sl-peek")) return;
       peekTimer = setTimeout(() => {
@@ -1277,7 +1325,18 @@
       }, 280);
     });
   }
-  function endPeek() { doc.documentElement.classList.remove("sl-peek"); }
+  let peekOutTimer;
+  function endPeek({ instant = false } = {}) {
+    const root = doc.documentElement;
+    clearTimeout(peekOutTimer);
+    if (instant || !root.classList.contains("sl-peek") || !root.classList.contains("sl-hidden")) {
+      root.classList.remove("sl-peek", "sl-peek-out");
+      return;
+    }
+    // Slides back out, then leaves the peek state.
+    root.classList.add("sl-peek-out");
+    peekOutTimer = setTimeout(() => root.classList.remove("sl-peek", "sl-peek-out"), 160);
+  }
 
   /* ---------- context menus ---------- */
 
@@ -1716,6 +1775,8 @@
     const profPopup = doc.createXULElement("menupopup");
     prof.append(profPopup);
     let editingId = null;
+    // Moving a workspace to another profile (its own window, extensions, passwords and sign-ins).
+    const profField = h("div", { class: "sl-wsf-field" }, h("span", { text: "Profile — another profile opens in its own window" }), prof);
 
     const fillProfiles = selected => {
       profPopup.replaceChildren();
@@ -1725,23 +1786,8 @@
         mi.setAttribute("value", p.id);
         profPopup.append(mi);
       }
-      const add = doc.createXULElement("menuitem");
-      add.setAttribute("label", "New profile…");
-      add.setAttribute("value", "__new__");
-      profPopup.append(add);
       prof.value = selected;
     };
-    prof.addEventListener("command", () => {
-      if (prof.value !== "__new__") return;
-      const n = { value: "" };
-      if (Services.prompt.prompt(window, "New profile", "Profile name (its own extensions, passwords, history and Firefox Account):", n, null, {}) && n.value.trim()) {
-        Profiles.createProfile(n.value.trim(), null).then(async entry => {
-          await IOUtils.writeJSON(PathUtils.join(Profiles.profileDir(entry), "sillage.json"), profileSeed(entry.id, entry.name, []));
-          registry = await Profiles.readRegistry();
-          fillProfiles(entry.id);
-        });
-      } else fillProfiles(wsById(editingId)?.profile || D.self);
-    });
 
     const updatePreview = () => { preview.style.setProperty("--pv-h", hue.value); preview.textContent = ic.value || "·"; };
     const close = () => { wsEdit.hidden = true; gBrowser.selectedBrowser.focus(); };
@@ -1752,7 +1798,9 @@
         if (!Services.prompt.confirm(window, "Sillage", `Move this workspace${n ? ` and its ${n} tabs` : ""} to the ${registry.profiles.find(p => p.id === prof.value)?.name} profile? It will open in that profile's window (sign-ins are per profile).`)) return;
       }
       close();
-      saveWs({ id: editingId, name: name.value.trim(), icon: ic.value.trim() || "·", hue: +hue.value, profile: prof.value });
+      // A new workspace always opens in this window; only an existing one can be moved to another profile.
+      const profile = editingId && profField.style.display !== "none" ? prof.value || D.self : D.self;
+      saveWs({ id: editingId, name: name.value.trim(), icon: ic.value.trim() || "·", hue: +hue.value, profile });
     };
     hue.addEventListener("input", updatePreview);
     ic.addEventListener("input", updatePreview);
@@ -1763,7 +1811,7 @@
       h("label", {}, "Icon", ic),
       h("div", { id: "sl-wsf-emojis" }, EMOJIS.map(em => h("button", { text: em, onclick: () => { ic.value = em; updatePreview(); } }))),
       h("label", {}, "Color", hue),
-      h("div", { class: "sl-wsf-field" }, h("span", { text: "Profile — each profile has its own extensions, passwords, history, sign-ins and Firefox Account" }), prof),
+      profField,
       h("div", { class: "sl-actions" },
         h("button", { text: "Cancel", onclick: close }),
         h("button", { class: "primary", text: "Save", onclick: submit })));
@@ -1782,6 +1830,7 @@
       ic.value = w ? w.icon : EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
       hue.value = w ? w.hue : Math.floor(Math.random() * 360);
       fillProfiles(profileId || D.self);
+      profField.style.display = w && registry.profiles.length > 1 ? "" : "none";
       updatePreview();
       wsEdit.hidden = false;
       name.focus();
@@ -1933,7 +1982,7 @@
 
   const NOTE_LIFETIME = 7 * 86400e3;
   const NOTE_COLORS = ["yellow", "pink", "blue", "green", "purple"];
-  let boardOpen = false, boardWrap, boardView, boardWorld, boardTimer;
+  let boardOpen = false, boardWrap, boardView, boardWorld, boardTimer, boardHideTimer;
 
   function board(ws = curWs()) {
     ws.board ||= { notes: [], view: { x: 0, y: 0, z: 1 } };
@@ -2048,7 +2097,9 @@
     save();
     if (boardOpen) {
       renderBoard();
-      boardWorld.querySelector(`[data-note="${n.id}"] textarea`)?.focus();
+      const el = boardWorld.querySelector(`[data-note="${n.id}"]`);
+      el?.classList.add("sl-enter");
+      el?.querySelector("textarea").focus();
     }
     return n;
   }
@@ -2116,8 +2167,7 @@
     if (!boardOpen) return;
     purgeNotes();
     const ws = curWs(), b = board(ws);
-    const box = $("#tabbrowser-tabbox").getBoundingClientRect();
-    for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) boardWrap.style.setProperty(`--bd-${k}`, v + "px");
+    positionBoard();
     boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name}`;
     boardWrap.classList.toggle("blank", isBlank(gBrowser.selectedTab));
     const focused = doc.activeElement?.closest?.(".sl-note")?.dataset.note;
@@ -2125,6 +2175,12 @@
     if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
     boardWrap.apply();
     boardWrap.classList.toggle("empty", !b.notes.length);
+  }
+
+  /* The board covers the page area exactly. */
+  function positionBoard() {
+    const box = $("#tabbrowser-tabbox").getBoundingClientRect();
+    for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) boardWrap.style.setProperty(`--bd-${k}`, v + "px");
   }
 
   /* Refreshes countdowns without rebuilding (keeps typing undisturbed). */
@@ -2145,6 +2201,8 @@
     endPeek();
     closePalette();
     boardOpen = true;
+    clearTimeout(boardHideTimer);
+    boardWrap.classList.remove("sl-closing");
     boardWrap.hidden = false;
     renderBoard();
     clearInterval(boardTimer);
@@ -2162,7 +2220,10 @@
       return;
     }
     boardOpen = false;
-    boardWrap.hidden = true;
+    // Fades out, then hides (unless it was reopened meanwhile).
+    boardWrap.classList.add("sl-closing");
+    clearTimeout(boardHideTimer);
+    boardHideTimer = setTimeout(() => { if (!boardOpen) boardWrap.hidden = true; boardWrap.classList.remove("sl-closing"); }, 140);
     clearInterval(boardTimer);
     gBrowser.selectedBrowser.focus();
     render();
@@ -2332,6 +2393,7 @@
   /* ---------- startup ---------- */
 
   const containerCheck = new WeakSet();
+  let started = false; // session restored and interface ready
 
   async function init() {
     D = await loadData();
@@ -2350,6 +2412,8 @@
     hookExternalLinks();
     if (shared.littleWindows.has(window)) enterLittle();
     window.addEventListener("resize", () => { if (boardOpen) renderBoard(); });
+    // The page area also changes size while the sidebar slides in or out.
+    new ResizeObserver(() => { if (boardOpen) positionBoard(); }).observe($("#tabbrowser-tabbox"));
 
     const tc = gBrowser.tabContainer;
     tc.addEventListener("TabOpen", e => {
@@ -2357,6 +2421,7 @@
       if (little) return render();
       if (!getVal(t, WS_KEY) && !tabItemId(t)) setVal(t, WS_KEY, activeWs);
       containerCheck.add(t);
+      if (started) freshTabs.add(t);
       render();
     });
     tc.addEventListener("TabSelect", () => {
@@ -2455,6 +2520,7 @@
     // An empty start page (no history) becomes the placeholder: show the board instead.
     adoptEmptyTab(gBrowser.selectedTab, { startup: true });
     renderNow();
+    started = true;
     if (isBlank(gBrowser.selectedTab)) openBoard();
     checkFirefoxUpdate();
     log("Sillage ready");
