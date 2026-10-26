@@ -352,6 +352,12 @@
     ok(!!orb && orb.closest(".sl-divider") && orb.querySelector(".sl-orb-count").textContent === "1", "orb sits on the divider and shows the note count");
     S.closeBoard();
     ok(!S.boardOpen && await until(() => document.getElementById("sl-board-wrap").hidden, 2000), "board closes (after fading out)");
+    S.openBoard();
+    const wsOther = S.D.workspaces.find(w => w.id !== S.activeWs && gBrowser.tabs.some(t => S.tabWs(t) === w.id && !S.isBlank(t)));
+    const wsBack = S.activeWs;
+    if (wsOther) S.switchWs(wsOther.id);
+    ok(!!wsOther && !S.boardOpen, "switching to a workspace with pages leaves the board behind");
+    S.switchWs(wsBack);
 
     // --- Little Sillage: links from other apps open in a small window
     const before2 = [...Services.wm.getEnumerator("navigator:browser")].length;

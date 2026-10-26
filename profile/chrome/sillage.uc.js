@@ -279,7 +279,6 @@
 
   function switchWs(id, { tab = null, animate = true } = {}) {
     if (!wsById(id)) return;
-    const boardWasOpen = boardOpen;
     const from = activeWs;
     const cur = gBrowser.selectedTab;
     if (from && inView(cur, from)) lastSelected.set(from, cur);
@@ -304,7 +303,10 @@
     if (animate && from && from !== id) slide(D.workspaces.findIndex(w => w.id === id) > D.workspaces.findIndex(w => w.id === from));
     save();
     render();
-    if (boardWasOpen || isBlank(target)) openBoard();
+    // The board belongs to the workspace it was opened in: it only shows in the new one when there is
+    // nothing open there.
+    if (isBlank(target)) openBoard();
+    else if (boardOpen) closeBoard();
   }
 
   /* Previous / next workspace (no wrap-around). */
