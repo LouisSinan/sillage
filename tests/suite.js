@@ -185,6 +185,18 @@
     const native = document.getElementById("key_savePage");
     ok(native?.getAttribute("disabled") === "true", "native Ctrl+S (save page) disabled");
 
+    // --- tabs stay alive
+    ok(!Services.prefs.getBoolPref("browser.sessionstore.restore_on_demand") && Services.prefs.getIntPref("browser.tabs.remote.tabCacheSize") >= 4,
+      "tabs are restored at startup and recent ones stay rendered");
+    {
+      const row = [...document.querySelectorAll("#sl-sidebar .sl-tab[data-tab]")].find(r => !r.classList.contains("active"));
+      let warmed = null;
+      const orig = gBrowser.warmupTab;
+      gBrowser.warmupTab = t => { warmed = t; };
+      row?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      gBrowser.warmupTab = orig;
+      ok(!!row && !!warmed && !warmed.selected, "hovering a sidebar row warms its tab up");
+    }
     // --- sidebar
     const vis = S.sidebarVisible;
     S.runCommand("toggle-sidebar");

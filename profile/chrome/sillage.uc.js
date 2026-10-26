@@ -1003,6 +1003,11 @@
   function rowTab(el) { return el?.dataset.tab ? tabsById.get(el.dataset.tab) : null; }
 
   function wireSidebar() {
+    // Hovering a sidebar row prepares its tab (as hovering a native tab does), so switching is instant.
+    side.addEventListener("mouseover", e => {
+      const t = rowTab(e.target.closest?.(".sl-tab, .sl-fav-tile"));
+      if (alive(t) && !t.selected) try { gBrowser.warmupTab(t); } catch {}
+    });
     side.addEventListener("click", e => {
       const dot = e.target.closest(".sl-ws-dot");
       if (dot) return switchWs(dot.dataset.ws);
