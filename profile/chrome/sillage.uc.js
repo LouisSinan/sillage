@@ -144,24 +144,38 @@
   const profOf = wsId => profById(wsById(wsId)?.profile);
   const curProf = () => profOf(activeWs);
 
-  /* Pinned tree: { type: "item", id, url, title, customTitle } | { type: "folder", id, name, open, children: [item] }
-     Favorites (the top grid) belong to a profile; pinned items belong to a workspace. */
-  function* walkItems() {
-    for (const p of D.profiles) for (const it of p.favorites) yield { item: it, list: p.favorites, ws: null, profile: p, folder: null };
-    for (const w of D.workspaces) {
-      for (const n of w.pinned) {
-        if (n.type === "folder") for (const it of n.children) yield { item: it, list: n.children, ws: w, profile: profById(w.profile), folder: n };
-        else yield { item: n, list: w.pinned, ws: w, profile: profById(w.profile), folder: null };
-      }
+  /* Pinned tree: { type: "item", id, url, title, customTitle } | { type: "folder", id, name, open, children: [node] }
+     Folders nest to any depth. Favorites (the top grid) belong to a profile; pinned items belong to a workspace. */
+  function* walkTree(list, w, folder = null) {
+    for (const n of list) {
+      if (n.type === "folder") yield* walkTree(n.children, w, n);
+      else yield { item: n, list, ws: w, profile: profById(w.profile), folder };
     }
   }
+  function* walkItems() {
+    for (const p of D.profiles) for (const it of p.favorites) yield { item: it, list: p.favorites, ws: null, profile: p, folder: null };
+    for (const w of D.workspaces) yield* walkTree(w.pinned, w);
+  }
   function findItem(id) { for (const r of walkItems()) if (r.item.id === id) return r; return null; }
+  /* A folder anywhere in the pinned trees: { w, list (its parent's children), i, f, parent }. */
   function findFolder(id) {
-    for (const w of D.workspaces) {
-      const i = w.pinned.findIndex(n => n.id === id);
-      if (i >= 0) return { w, i, f: w.pinned[i] };
-    }
+    const search = (list, w, parent) => {
+      for (let i = 0; i < list.length; i++) {
+        const n = list[i];
+        if (n.type !== "folder") continue;
+        if (n.id === id) return { w, list, i, f: n, parent };
+        const r = search(n.children, w, n);
+        if (r) return r;
+      }
+      return null;
+    };
+    for (const w of D.workspaces) { const r = search(w.pinned, w, null); if (r) return r; }
     return null;
+  }
+  /* Is folder `id` the folder `ancestor` or inside it? */
+  function folderWithin(id, ancestor) {
+    for (let r = findFolder(id); r; r = r.parent && findFolder(r.parent.id)) if (r.f.id === ancestor) return true;
+    return false;
   }
 
   /* ---------- per-profile history (palette) ---------- */
@@ -433,10 +447,8 @@
   function sidebarEntries() {
     const ws = curWs(), out = [];
     for (const it of curProf().favorites) out.push({ item: it });
-    for (const n of ws.pinned) {
-      if (n.type === "folder") { if (n.open) for (const it of n.children) out.push({ item: it }); }
-      else out.push({ item: n });
-    }
+    const walk = list => { for (const n of list) n.type === "folder" ? n.open && walk(n.children) : out.push({ item: n }); };
+    walk(ws.pinned);
     for (const t of todayTabs(ws.id)) if (!isBlank(t)) out.push({ tab: t });
     return out;
   }
@@ -489,7 +501,7 @@
   function destList(dest) {
     const w = wsById(dest.wsId || activeWs);
     if (dest.list === "favorites") return profById(w.profile).favorites;
-    return dest.folderId ? w.pinned.find(n => n.id === dest.folderId)?.children : w.pinned;
+    return dest.folderId ? findFolder(dest.folderId)?.f.children : w.pinned;
   }
 
   /* Destination: { list: "favorites" | "pinned" | "today", wsId, folderId, index, beforeTab, afterTab } */
@@ -558,11 +570,18 @@
     render();
   }
 
-  function moveFolder(id, index) {
+  /* Moves a folder within its workspace: dest = { folderId (null: top level), index } (or just an index). */
+  function moveFolder(id, dest = {}) {
+    if (typeof dest === "number") dest = { index: dest };
     const r = findFolder(id);
     if (!r) return;
-    r.w.pinned.splice(r.i, 1);
-    r.w.pinned.splice(Math.min(r.i < index ? index - 1 : index, r.w.pinned.length), 0, r.f);
+    if (dest.folderId && folderWithin(dest.folderId, id)) return; // not into itself
+    const target = dest.folderId ? findFolder(dest.folderId)?.f.children : r.w.pinned;
+    if (!target) return;
+    let i = dest.index ?? target.length;
+    if (target === r.list && r.i < i) i--;
+    r.list.splice(r.i, 1);
+    target.splice(Math.max(0, Math.min(i, target.length)), 0, r.f);
     save();
     render();
   }
@@ -599,9 +618,11 @@
     if (r && t) t.linkedBrowser.fixupAndLoadURIString(r.item.url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
   }
 
-  function createFolder(wsId = activeWs, name = "New folder") {
+  function createFolder(wsId = activeWs, name = "New folder", parentId = null) {
     const f = { type: "folder", id: uid(), name, open: true, children: [] };
-    wsById(wsId).pinned.push(f);
+    const parent = parentId && findFolder(parentId)?.f;
+    if (parent) { parent.open = true; parent.children.push(f); }
+    else wsById(wsId).pinned.push(f);
     save();
     render();
     return f;
@@ -900,13 +921,14 @@
     wsTitle.replaceChildren(h("span", { text: `${ws.icon}  ${ws.name}` }));
     if (showProfile) wsTitle.append(h("span", { class: "sl-prof", title: "Profile (cookies, history)" }, icon("user"), prof.name));
 
-    pinBox.replaceChildren(...ws.pinned.map((n, i) => {
-      if (n.type !== "folder") return rowForItem(n, "pinned", i, null);
+    const node = (n, i, parent) => {
+      if (n.type !== "folder") return rowForItem(n, "pinned", i, parent);
       return h("div", { class: "sl-folder" },
-        h("div", { class: `sl-row sl-folder-head${n.open ? " open" : ""}`, draggable: "true", "data-folder-id": n.id, "data-index": i },
+        h("div", { class: `sl-row sl-folder-head${n.open ? " open" : ""}`, draggable: "true", "data-folder-id": n.id, "data-index": i, "data-parent": parent },
           icon("chev", "sl-chev"), icon("folder"), h("span", { class: "sl-title", text: n.name })),
-        n.open && h("div", { class: `sl-folder-body${openedFolders.delete(n.id) ? " sl-enter" : ""}` }, n.children.map((it, k) => rowForItem(it, "pinned", k, n.id))));
-    }));
+        n.open && h("div", { class: `sl-folder-body${openedFolders.delete(n.id) ? " sl-enter" : ""}` }, n.children.map((c, k) => node(c, k, n.id))));
+    };
+    pinBox.replaceChildren(...ws.pinned.map((n, i) => node(n, i, null)));
 
     todayBox.replaceChildren(...todayTabs(ws.id).filter(t => !isBlank(t)).map((t, i) => rowForTab(t, "today", i)));
 
@@ -1095,15 +1117,18 @@
     const fh = e.target.closest(".sl-folder-head");
     if (fh) {
       const r = fh.getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
-      if (!isFolder && y > .25 && y < .75) return { el: fh, mark: "sl-drop-into", dest: { list: "pinned", folderId: fh.dataset.folderId } };
+      // A folder cannot go into itself or one of its subfolders.
+      const inside = id => isFolder && id && folderWithin(id, dragging.id);
+      if (y > .25 && y < .75 && !inside(fh.dataset.folderId)) return { el: fh, mark: "sl-drop-into", dest: { list: "pinned", folderId: fh.dataset.folderId } };
+      if (inside(fh.dataset.parent) || (isFolder && fh.dataset.folderId === dragging.id)) return null;
       const before = y < .5;
-      return { el: fh, mark: before ? "sl-drop-before" : "sl-drop-after", dest: { list: "pinned", index: +fh.dataset.index + (before ? 0 : 1) } };
+      return { el: fh, mark: before ? "sl-drop-before" : "sl-drop-after", dest: { list: "pinned", folderId: fh.dataset.parent || null, index: +fh.dataset.index + (before ? 0 : 1) } };
     }
 
     const row = rowTarget(e);
     if (row) {
       const list = row.dataset.list;
-      if (isFolder && (list !== "pinned" || row.dataset.folder)) return null;
+      if (isFolder && (list !== "pinned" || (row.dataset.folder && folderWithin(row.dataset.folder, dragging.id)))) return null;
       const r = row.getBoundingClientRect();
       const before = list === "favorites" ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
       const dest = { list, folderId: row.dataset.folder || null, index: +row.dataset.index + (before ? 0 : 1) };
@@ -1159,7 +1184,7 @@
       const dr = dragging;
       endDrag();
       if (dr.kind === "ws") moveWorkspace(dr.id, dest.index);
-      else if (dr.kind === "folder") moveFolder(dr.id, dest.index ?? Infinity);
+      else if (dr.kind === "folder") moveFolder(dr.id, { folderId: dest.folderId || null, index: dest.index });
       else if (dr.tab) moveTab(dr.tab, dest);
       else moveItem(dr.item, dest);
     });
@@ -1299,10 +1324,16 @@
     if (!r) return;
     popup(e, [
       { label: "Rename…", fn: () => startRename(fh, "folder", r.f.id) },
-      { label: "Open all tabs", fn: () => r.f.children.forEach(it => openItem(it.id, { background: true })) },
+      { label: "New folder inside", fn: () => { const f = createFolder(r.w.id, "New folder", r.f.id); renameFolderSoon(f.id); } },
+      { label: "Open all tabs", fn: () => [...walkTree(r.f.children, r.w)].forEach(x => openItem(x.item.id, { background: true })) },
       "-",
-      { label: "Delete folder (keep items)", fn: () => { r.w.pinned.splice(r.i, 1, ...r.f.children); save(); render(); } },
-      { label: "Delete folder and its items", fn: () => { [...r.f.children].forEach(it => deleteItem(it.id)); r.w.pinned.splice(r.w.pinned.indexOf(r.f), 1); save(); render(); } },
+      { label: "Delete folder (keep its contents)", fn: () => { r.list.splice(r.list.indexOf(r.f), 1, ...r.f.children); save(); render(); } },
+      { label: "Delete folder and its contents", fn: () => {
+        [...walkTree(r.f.children, r.w)].forEach(x => deleteItem(x.item.id));
+        r.list.splice(r.list.indexOf(r.f), 1);
+        save();
+        render();
+      } },
     ]);
   }
 
@@ -1798,15 +1829,17 @@
     const w = curWs();
     let count = 0;
     const mk = u => { count++; return { type: "item", id: uid(), url: u.url, title: u.name || u.url }; };
-    const collect = (n, out) => (n.type === "url" ? out.push(n) : (n.children || []).forEach(c => collect(c, out)));
+    // Folders keep their hierarchy; empty ones are skipped.
+    const conv = n => n.type === "url" ? mk(n)
+      : { type: "folder", id: uid(), name: n.name, open: false, children: (n.children || []).map(conv).filter(Boolean) };
+    const nonEmpty = n => n.type !== "folder" || (n.children = n.children.filter(nonEmpty)).length > 0;
     for (const root of [roots.bookmark_bar, roots.other, roots.synced]) {
       if (!root?.children?.length) continue;
       const loose = [];
       for (const c of root.children) {
         if (c.type === "url") { loose.push(c); continue; }
-        const urls = [];
-        collect(c, urls);
-        if (urls.length) w.pinned.push({ type: "folder", id: uid(), name: c.name, open: false, children: urls.map(mk) });
+        const f = conv(c);
+        if (nonEmpty(f)) w.pinned.push(f);
       }
       if (loose.length) w.pinned.push({ type: "folder", id: uid(), name: root.name, open: false, children: loose.map(mk) });
     }

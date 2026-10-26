@@ -91,6 +91,26 @@
     ok(ws().pinned.find(n => n.id === f.id).children.length === 1, "pinned item moved into a folder");
     S.moveTab(b, { list: "pinned", index: 0, wsId: ws1 });
     ok(ws().pinned[0].type === "item" && ws().pinned.length === 2, "pinned item moved out of the folder");
+    // nested folders
+    const sub = S.createFolder(ws1, "Sub", f.id);
+    ok(ws().pinned.find(n => n.id === f.id).children.some(n => n.id === sub.id), "folder created inside a folder");
+    S.moveTab(b, { list: "pinned", folderId: sub.id, wsId: ws1 });
+    ok(sub.children.length === 1 && S.tabItemId(b) === sub.children[0].id, "pinned item moved into a nested folder");
+    S.renderNow();
+    ok(!!document.querySelector(`.sl-folder-head[data-folder-id="${sub.id}"][data-parent="${f.id}"]`)
+      && !!document.querySelector(`.sl-folder-head[data-folder-id="${sub.id}"] ~ .sl-folder-body .sl-tab`), "nested folder rendered inside its parent");
+    S.moveFolder(f.id, { folderId: sub.id });
+    ok(ws().pinned.some(n => n.id === f.id), "a folder cannot move into its own subfolder");
+    const fo = S.createFolder(ws1, "Other");
+    S.moveFolder(fo.id, { folderId: sub.id, index: 0 });
+    ok(sub.children[0].id === fo.id && !ws().pinned.some(n => n.id === fo.id), "a folder moves into another folder");
+    S.moveFolder(fo.id, { index: 0 });
+    ok(ws().pinned[0].id === fo.id, "and back to the top level");
+    ws().pinned.splice(0, 1);
+    S.moveTab(b, { list: "pinned", index: 0, wsId: ws1 });
+    ws().pinned.splice(ws().pinned.findIndex(n => n.id === f.id), 1);
+    S.renderNow();
+    ok(ws().pinned.length === 1 && ws().pinned[0].type === "item", "nested folders cleaned up");
 
     // --- closing a pinned tab keeps the pinned item
     const bItem = S.tabItemId(b);
