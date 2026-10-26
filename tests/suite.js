@@ -91,6 +91,15 @@
     ok(ws().pinned.find(n => n.id === f.id).children.length === 1, "pinned item moved into a folder");
     S.moveTab(b, { list: "pinned", index: 0, wsId: ws1 });
     ok(ws().pinned[0].type === "item" && ws().pinned.length === 2, "pinned item moved out of the folder");
+    // renaming: a click elsewhere commits, and the field keeps normal mouse selection
+    S.renderNow();
+    const fhead = document.querySelector(`.sl-folder-head[data-folder-id="${f.id}"]`);
+    fhead.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const rin = fhead.querySelector("input.sl-rename");
+    ok(!!rin && fhead.getAttribute("draggable") === "false", "double-click renames; the row is not draggable while editing");
+    rin.value = "Renamed folder";
+    document.getElementById("sl-newtab").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    ok(f.name === "Renamed folder" && !document.querySelector("input.sl-rename"), "clicking elsewhere ends the renaming");
     // nested folders
     const sub = S.createFolder(ws1, "Sub", f.id);
     ok(ws().pinned.find(n => n.id === f.id).children.some(n => n.id === sub.id), "folder created inside a folder");
@@ -491,12 +500,12 @@
     ext.setAttribute("label", "Test Ext");
     document.getElementById("nav-bar-customization-target").append(ext);
     S.switchWs(ws3);
-    ok(S.dynamicCommands().some(c => c.cmd === "ext-hide:" + ext.id && c.title.includes("Acme")), "palette offers to hide a pinned extension in this profile");
+    ok(S.dynamicCommands().some(c => c.cmd === "ext-hide:" + ext.id && c.title.includes("Client")), "palette offers to hide a pinned extension in this workspace");
     S.runCommand("ext-hide:" + ext.id);
     ok(getComputedStyle(ext).display === "none", "extension hidden in this profile");
     S.switchWs(ws1);
     await wait(50);
-    ok(getComputedStyle(ext).display !== "none", "still shown in the other profile");
+    ok(getComputedStyle(ext).display !== "none", "still shown in the other workspace");
     S.switchWs(ws3);
     S.renderNow();
     ok(getComputedStyle(ext).display === "none" && S.dynamicCommands().some(c => c.cmd === "ext-show:" + ext.id), "hidden again on return; palette offers to show it");

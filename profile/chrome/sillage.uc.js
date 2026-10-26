@@ -842,6 +842,7 @@
     wireResize(resizer);
     wirePeek();
     wireExtensionPins();
+    migrateExtensionPins();
     buildPalette();
     buildWsEditor();
     buildBoard();
@@ -1089,6 +1090,12 @@
     if (!span) return;
     const input = h("input", { class: "sl-rename", value: span.textContent });
     span.replaceWith(input);
+    // A draggable row swallows mouse selection (double-click on a word, drag-select) in the field.
+    const wasDraggable = row.getAttribute("draggable");
+    row.setAttribute("draggable", "false");
+    // Clicking anywhere else commits (clicks on the sidebar do not move the focus in the browser window).
+    const outside = e => { if (e.target !== input) finish(true); };
+    window.addEventListener("pointerdown", outside, true);
     editing = true;
     input.focus();
     input.select();
@@ -1097,6 +1104,8 @@
       if (done) return;
       done = true;
       editing = false;
+      window.removeEventListener("pointerdown", outside, true);
+      if (wasDraggable) row.setAttribute("draggable", wasDraggable);
       if (commit) {
         const v = input.value.trim();
         if (kind === "folder") { const r = findFolder(id); if (r && v) r.f.name = v; }
@@ -1111,7 +1120,7 @@
       if (e.key === "Escape") finish(false);
     });
     input.addEventListener("blur", () => finish(true));
-    input.addEventListener("click", e => e.stopPropagation());
+    for (const ev of ["click", "dblclick", "mousedown"]) input.addEventListener(ev, e => e.stopPropagation());
   }
 
   /* ---------- drag and drop ---------- */
@@ -1378,9 +1387,9 @@
     toast("URL copied");
   }
 
-  /* ---------- extensions per profile ----------
-     Extensions are shared by all profiles (one Firefox profile), but each profile chooses which pinned
-     extension icons it shows; hidden ones stay available in the extensions menu. */
+  /* ---------- pinned extensions per workspace ----------
+     Extensions are shared by all workspaces and profiles (one Firefox profile), but each workspace chooses
+     which pinned extension icons it shows; hidden ones stay available in the extensions menu. */
 
   const pinnedExtensions = () => [...doc.querySelectorAll("#nav-bar-customization-target > [id$='-browser-action']")];
   function extensionName(el) {
@@ -1388,19 +1397,28 @@
       || el.querySelector("toolbarbutton")?.getAttribute("label") || el.getAttribute("label") || el.id.replace(/-browser-action$/, "");
   }
   function applyExtensionPins() {
-    const hidden = new Set(curProf()?.hiddenExtensions || []);
+    const hidden = new Set(curWs()?.hiddenExtensions || []);
     for (const el of pinnedExtensions()) el.toggleAttribute("sl-profile-hidden", hidden.has(el.id));
   }
   function setExtensionHidden(id, hide) {
-    const p = curProf();
-    const list = (p.hiddenExtensions ||= []).filter(x => x !== id);
+    const w = curWs();
+    const list = (w.hiddenExtensions || []).filter(x => x !== id);
     if (hide) list.push(id);
-    p.hiddenExtensions = list;
+    w.hiddenExtensions = list;
     applyExtensionPins();
     save();
-    const el = doc.getElementById(id);
-    toast(hide ? `${el ? extensionName(el) : "Extension"} hidden in the ${p.name} profile — show it again from the palette`
-               : `${el ? extensionName(el) : "Extension"} shown in the ${p.name} profile`, hide ? 3500 : 1800);
+    const el = doc.getElementById(id), name = el ? extensionName(el) : "Extension";
+    toast(hide ? `${name} hidden in ${w.name} — right-click the extensions menu or use the palette to show it again`
+               : `${name} shown in ${w.name}`, hide ? 3500 : 1800);
+  }
+  /* Earlier versions stored hidden extensions per profile: each workspace of the profile takes them over. */
+  function migrateExtensionPins() {
+    for (const p of D.profiles) {
+      if (!p.hiddenExtensions?.length) continue;
+      for (const w of D.workspaces) if (w.profile === p.id) w.hiddenExtensions = [...new Set([...(w.hiddenExtensions || []), ...p.hiddenExtensions])];
+      delete p.hiddenExtensions;
+      save();
+    }
   }
   function wireExtensionPins() {
     // Extensions are added to the toolbar while the window loads, and when pinned later.
@@ -1418,7 +1436,26 @@
       const el = menu.triggerNode?.closest?.("#nav-bar-customization-target > [id$='-browser-action']");
       item._ext = el?.id || null;
       item.hidden = sep.hidden = !el;
-      if (el) item.setAttribute("label", `Hide in the ${curProf().name} profile`);
+      if (el) item.setAttribute("label", `Hide in ${curWs().icon} ${curWs().name}`);
+    });
+    // Right-click on the extensions menu button: show icons hidden in this workspace again.
+    const showMenu = doc.createXULElement("menu");
+    showMenu.setAttribute("label", "Show hidden extensions");
+    const showPopup = doc.createXULElement("menupopup");
+    showMenu.append(showPopup);
+    menu.prepend(showMenu);
+    menu.addEventListener("popupshowing", e => {
+      if (e.target !== menu) return;
+      const onExtButton = menu.triggerNode?.closest?.("#unified-extensions-button");
+      const hidden = pinnedExtensions().filter(el => (curWs().hiddenExtensions || []).includes(el.id));
+      showMenu.hidden = !onExtButton || !hidden.length;
+      showPopup.replaceChildren(...hidden.map(el => {
+        const mi = doc.createXULElement("menuitem");
+        mi.setAttribute("label", extensionName(el));
+        mi.addEventListener("command", () => setExtensionHidden(el.id, false));
+        return mi;
+      }));
+      if (onExtButton && hidden.length) sep.hidden = false;
     });
   }
 
@@ -1517,11 +1554,11 @@
         out.push({ cmd: "del-profile:" + p.id, title: `Delete profile ${p.name} (cookies and history)`, kw: "profile remove" });
       }
     }
-    const prof = curProf();
+    const ws = curWs();
     for (const el of pinnedExtensions()) {
-      const hidden = (prof.hiddenExtensions || []).includes(el.id);
-      out.push({ cmd: `ext-${hidden ? "show" : "hide"}:${el.id}`, kw: "extension toolbar pin profile",
-        title: `${hidden ? "Show" : "Hide"} extension ${extensionName(el)} in the ${prof.name} profile` });
+      const hidden = (ws.hiddenExtensions || []).includes(el.id);
+      out.push({ cmd: `ext-${hidden ? "show" : "hide"}:${el.id}`, kw: "extension toolbar pin workspace",
+        title: `${hidden ? "Show" : "Hide"} extension ${extensionName(el)} in ${ws.icon} ${ws.name}` });
     }
     return out;
   }

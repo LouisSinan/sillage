@@ -28,16 +28,16 @@ const hashesOf = D => { let m = hashTables.get(D); if (!m) hashTables.set(D, (m 
 // Keys starting with "_" are runtime-only (timers…).
 const serialize = o => JSON.stringify(o, (k, v) => (k.startsWith("_") ? undefined : v));
 
-const profileFields = p => ({ name: p.name, favorites: p.favorites, hiddenExtensions: p.hiddenExtensions || [] });
+const profileFields = p => ({ name: p.name, favorites: p.favorites });
 const workspaceFields = (w, order) => ({
   name: w.name, icon: w.icon, hue: w.hue, profile: w.profile, pinned: w.pinned,
-  notes: w.board?.notes || [], items: w.board?.items || [], order,
+  notes: w.board?.notes || [], items: w.board?.items || [], hiddenExtensions: w.hiddenExtensions || [], order,
 });
 
 /* A workspace or profile nobody has touched yet (fresh install defaults). */
 function pristine(entity, kind) {
   if (entity.mod) return false;
-  return kind === "profile" ? !entity.favorites.length && !entity.hiddenExtensions?.length : !entity.pinned.length && !entity.board?.notes?.length && !entity.board?.items?.length;
+  return kind === "profile" ? !entity.favorites.length : !entity.pinned.length && !entity.board?.notes?.length && !entity.board?.items?.length && !entity.hiddenExtensions?.length;
 }
 
 /* Stamps entities whose synced fields changed since the last call. Returns true if anything changed. */
@@ -142,7 +142,7 @@ export function merge(D, remote) {
       continue;
     }
     const profile = D.profiles.some(p => p.id === r.profile) ? r.profile : D.profiles[0].id;
-    const fields = { name: r.name, icon: r.icon, hue: r.hue, profile, pinned: r.pinned || [], mod: r.mod, _order: r.order };
+    const fields = { name: r.name, icon: r.icon, hue: r.hue, profile, pinned: r.pinned || [], hiddenExtensions: r.hiddenExtensions || [], mod: r.mod, _order: r.order };
     if (w) {
       Object.assign(w, fields);
       w.board = { ...(w.board || { view: { x: 0, y: 0, z: 1 } }), notes: r.notes || [], items: r.items || [] };
