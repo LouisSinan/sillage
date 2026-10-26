@@ -37,10 +37,15 @@ Firefox.
   <kbd>O</kbd> ellipse; <kbd>Shift</kbd> constrains, <kbd>Del</kbd> deletes, <kbd>Space</kbd> or the middle button pans.
   Drag a tab, a pinned item or a link onto the board to add a small link block: clicking it goes to the tab
   (or opens the page), and the sidebar is left unchanged.
+- **Glance**: a link that would open a new tab (or any link with <kbd>Shift</kbd>+click) shows in a card over the
+  current page instead, like Arc's Peek. Click beside it or press <kbd>Esc</kbd> to close it, or *Open as tab* to keep
+  it. <kbd>Ctrl</kbd>+click still opens a background tab. Can be turned off from the palette.
 - **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
   "Open in…" moves the tab into the workspace of your choice. Can be turned off from the palette.
 - **Sync** through your Firefox Account: workspaces, pinned items, folders, boards, profiles and favorites
   follow you across devices, end-to-end encrypted like the rest of Firefox Sync.
+- **Light on memory**: after a restart, tabs load when you open them; once loaded they stay alive. Hovering a
+  sidebar row prepares its tab so switching is instant.
 - **Pinned tabs** that keep their home URL; closing a pinned tab unloads it instead of removing it.
 - **Auto-archiving** of today tabs that have not been viewed for a while (12 hours to 7 days, or never).
 - **Drag and drop** to reorder, pin, file into folders or move tabs to another workspace.

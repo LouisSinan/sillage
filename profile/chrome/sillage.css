@@ -278,7 +278,7 @@
   font-size: 10px; font-weight: 700; box-shadow: 0 1px 3px hsl(0 0% 0% / .25);
 }
 .sl-orb-count:empty { display: none; }
-.sl-orb-count.alert { background: hsl(0 80% 52%); color: white; animation: sl-alert 1.4s ease-in-out infinite; }
+.sl-orb-count.alert { background: hsl(0 80% 52%); color: white; animation: sl-alert 1.4s ease-in-out 4; }
 #sl-orb.alert { box-shadow: 0 0 0 2px hsl(0 80% 52% / .55), 0 1px 3px hsl(280 50% 30% / .35); }
 /* A workspace with expired notes shows a red dot in the bottom bar. */
 .sl-ws-dot.alert::after {
@@ -565,7 +565,7 @@
 .sl-note-green  { background: var(--bn-green); }
 .sl-note-purple { background: var(--bn-purple); }
 /* Expired note: kept, with a red alert until it is renewed, snoozed or deleted. */
-.sl-note-alert { display: none; width: 10px; height: 10px; flex: none; border-radius: 50%; background: hsl(0 80% 52%); animation: sl-alert 1.4s ease-in-out infinite; }
+.sl-note-alert { display: none; width: 10px; height: 10px; flex: none; border-radius: 50%; background: hsl(0 80% 52%); animation: sl-alert 1.4s ease-in-out 4; }
 .sl-note.expired { box-shadow: 0 0 0 2.5px hsl(0 80% 52%), 0 0 22px hsl(0 80% 52% / .45), 0 6px 18px hsl(0 0% 0% / .14); }
 .sl-note.expired .sl-note-alert { display: block; }
 .sl-note.expired .sl-note-head { background: hsl(0 80% 52% / .18); }
@@ -613,4 +613,53 @@
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   :root.sillage, :root.sillage *:not(.sl-spin) { transition-duration: 0s !important; transition-delay: 0s !important; animation-duration: 0s !important; }
+}
+
+/* ---------- Glance: a page shown in a card over the current one (Firefox split view, restyled) ---------- */
+:root[sl-glance] #tabbrowser-tabpanels[splitview] {
+  position: relative;
+  & > .split-view-splitter, split-view-footer { display: none !important; }
+  & > [sl-glance-base] { position: absolute; inset: 0; margin: 0 !important; width: auto !important; max-width: none; min-width: 0; }
+  & > [sl-glance-card] {
+    position: absolute; top: 44px; bottom: 14px; left: var(--gl-side, 8%); right: var(--gl-side, 8%);
+    margin: 0 !important; width: auto !important; max-width: none; min-width: 0; z-index: 3;
+    border-radius: 12px; box-shadow: 0 24px 70px rgb(0 0 0 / .4), 0 0 0 1px rgb(0 0 0 / .08);
+    animation: sl-glance-in .22s var(--sl-ease);
+  }
+  & > [sl-glance-base] > .browserContainer, & > [sl-glance-card] > .browserContainer { outline: none !important; border-color: transparent !important; }
+  & > [sl-glance-base] > .browserContainer { border-radius: 0; }
+  & > [sl-glance-card] > .browserContainer { border-radius: 12px; }
+}
+#urlbar #split-view-button { display: none !important; }
+@keyframes sl-glance-in { from { opacity: 0; transform: translateY(18px) scale(.97); } }
+#sl-glance {
+  position: fixed; left: var(--gl-x); top: var(--gl-y); width: var(--gl-w); height: var(--gl-h); z-index: 140;
+  pointer-events: none; font: menu; font-size: 12.5px;
+}
+#sl-glance[hidden] { display: none; }
+.sl-glance-shade {
+  position: absolute; inset: 0; pointer-events: auto; background: hsl(var(--sl-h) 30% 8% / .38);
+  animation: sl-fade-in .18s ease-out;
+}
+@keyframes sl-fade-in { from { opacity: 0; } }
+.sl-glance-bar {
+  position: absolute; top: calc(var(--gl-card-t, 44px) - 38px); left: var(--gl-card-l, 8%); right: var(--gl-card-r, 8%);
+  display: flex; align-items: center; gap: 6px; height: 30px; pointer-events: none;
+  animation: sl-fade-in .22s ease-out;
+}
+.sl-glance-title {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: white; font-weight: 600; text-shadow: 0 1px 3px rgb(0 0 0 / .45); padding-inline-start: 4px;
+}
+.sl-glance-btn {
+  pointer-events: auto; appearance: none; display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; min-width: 30px; justify-content: center; padding: 0 8px; border: none; border-radius: 8px;
+  background: hsl(var(--sl-h) 20% 98% / .92); color: hsl(var(--sl-h) 30% 15%); font: inherit; font-weight: 600;
+  box-shadow: 0 2px 8px rgb(0 0 0 / .2); transition: background .12s, transform .12s;
+}
+.sl-glance-btn:hover { background: white; }
+.sl-glance-btn:active { transform: scale(.95); }
+.sl-glance-btn .sl-icon { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: reduce) {
+  :root[sl-glance] #tabbrowser-tabpanels[splitview] > [sl-glance-card], .sl-glance-shade, .sl-glance-bar { animation: none; }
 }

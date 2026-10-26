@@ -47,6 +47,8 @@
   const ICONS = {
     plus: '<path d="M12 5v14M5 12h14"/>',
     x: '<path d="M7 7l10 10M17 7L7 17"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    expand: '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
     folder: '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>',
     chev: '<path d="M9 6l6 6-6 6"/>',
@@ -265,7 +267,7 @@
   }
 
   function todayTabs(wsId) {
-    return gBrowser.tabs.filter(t => alive(t) && !tabItemId(t) && tabWs(t) === wsId);
+    return gBrowser.tabs.filter(t => alive(t) && !tabItemId(t) && tabWs(t) === wsId && t !== glance?.tab);
   }
 
   /* Opens a tab in the given profile's container. */
@@ -301,6 +303,7 @@
 
   function switchWs(id, { tab = null, animate = true } = {}) {
     if (!wsById(id)) return;
+    if (glance) closeGlance({ select: false });
     const from = activeWs;
     const cur = gBrowser.selectedTab;
     if (from && inView(cur, from)) lastSelected.set(from, cur);
@@ -363,7 +366,7 @@
   let mru = [], cycling = false, cycleList = [], cycleIdx = 0, switcher;
 
   function touchMru(t) {
-    if (cycling || !alive(t)) return;
+    if (cycling || !alive(t) || t === glance?.tab) return;
     mru = [t, ...mru.filter(x => x !== t && alive(x))].slice(0, 100);
     updateSuccessor();
   }
@@ -895,6 +898,20 @@
   let renderQueued = false, renderPending = false, dragging = null, editing = false;
   const freshTabs = new WeakSet(); // opened since the last render: animated once
   const openedFolders = new Set(); // folders just opened: their content slides in once
+  /* Changes coming from pages (titles, icons, loading, navigation) are grouped: at most a few renders
+     per second, and none for tabs the sidebar does not show. User actions still render on the next frame. */
+  let lastRender = 0, laterTimer = 0, renderCount = 0;
+  function renderLater() {
+    if (laterTimer || renderQueued) return;
+    laterTimer = setTimeout(() => { laterTimer = 0; render(); }, Math.max(0, lastRender + 250 - performance.now()));
+  }
+  const SHOWN_ATTRS = new Set(["label", "image", "busy", "soundplaying", "muted", "pending", "activemedia-blocked", "crashed", "pictureinpicture"]);
+  function onTabAttr(e) {
+    const t = e.target;
+    if (!e.detail?.changed?.some(a => SHOWN_ATTRS.has(a))) return;
+    if (little || inView(t) || t === glance?.tab) renderLater();
+  }
+
   function render() {
     if (renderQueued) return;
     renderQueued = true;
@@ -907,6 +924,8 @@
 
   function renderNow() {
     renderPending = false;
+    lastRender = performance.now();
+    renderCount++;
     if (little) return renderLittle();
     // Safety net: the sidebar and the window must never be scrolled.
     for (const el of [side, $("#browser"), doc.documentElement, doc.body]) if (el && el.scrollTop) el.scrollTop = 0;
@@ -916,6 +935,7 @@
     doc.documentElement.style.setProperty("--sl-w", D.settings.sidebarWidth + "px");
     doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
     applyExtensionPins();
+    updateGlanceTitle();
 
     favBox.replaceChildren(...prof.favorites.map((it, i) => {
       const t = tabForItem(it.id);
@@ -1018,9 +1038,12 @@
 
   function wireSidebar() {
     // Hovering a sidebar row prepares its tab (as hovering a native tab does), so switching is instant.
+    // Only after a short pause on the row: sweeping the mouse along the sidebar does not render every tab.
+    let warmTimer;
     side.addEventListener("mouseover", e => {
       const t = rowTab(e.target.closest?.(".sl-tab, .sl-fav-tile"));
-      if (alive(t) && !t.selected) try { gBrowser.warmupTab(t); } catch {}
+      clearTimeout(warmTimer);
+      if (alive(t) && !t.selected) warmTimer = setTimeout(() => { if (alive(t) && !t.selected) try { gBrowser.warmupTab(t); } catch {} }, 120);
     });
     side.addEventListener("click", e => {
       const dot = e.target.closest(".sl-ws-dot");
@@ -1528,6 +1551,8 @@
     { cmd: "new-note", title: "New sticky note", kw: "board post-it" },
     { cmd: "little-on", title: "Open links from other apps in a Little Sillage window", kw: "external little arc" },
     { cmd: "little-off", title: "Open links from other apps in the current workspace", kw: "external little arc" },
+    { cmd: "glance-on", title: "Open links that would open a new tab in a card over the page", kw: "glance peek preview popup" },
+    { cmd: "glance-off", title: "Open links in a new tab, as in Firefox", kw: "glance peek preview popup" },
     { cmd: "copy-url", title: "Copy URL", kw: "link" },
     { cmd: "clear-today", title: "Clear today tabs", kw: "close archive" },
     { cmd: "reopen", title: "Reopen closed tab", kw: "restore undo" },
@@ -1589,6 +1614,10 @@
         D.settings.littleWindow = cmd === "little-on";
         save();
         return toast(D.settings.littleWindow ? "Links from other apps open in a Little Sillage window" : "Links from other apps open in the current workspace");
+      case "glance-on": case "glance-off":
+        D.settings.glance = cmd === "glance-on";
+        save();
+        return toast(D.settings.glance ? "Links that would open a new tab show in a card over the page" : "Links open in a new tab");
       case "copy-url": return copyUrl();
       case "clear-today": return clearToday();
       case "reopen": return undoCloseTab();
@@ -2005,6 +2034,123 @@
     return t;
   }
 
+  /* ---------- Glance: a link that would open a new tab shows in a card over the page ----------
+     Like Arc's Peek. The card is a real tab shown with Firefox's split view (so both pages stay live,
+     with their history, find bar and permissions), restyled as a floating card. Clicking beside it or
+     Escape closes it; "Open as tab" keeps it as a regular tab. Shift+click opens any link this way. */
+
+  let glance = null; // { tab, parent, split }
+  const glanceEnabled = () => D.settings.glance !== false;
+
+  function hookGlance() {
+    const addTab = gBrowser.addTab;
+    gBrowser.addTab = function (uri, opts = {}) {
+      const opener = opts.openerBrowser && gBrowser.getTabForBrowser(opts.openerBrowser);
+      // A link opened from inside the card: the card becomes a regular tab first.
+      if (glance && opener === glance.tab) closeGlance({ keep: true });
+      const want = glanceEnabled() && !little && !glance && !boardOpen && opener?.selected && !isBlank(opener)
+        && !opts.inBackground && !opts.fromExternal && typeof gBrowser.addTabSplitView === "function";
+      if (!want) return addTab.call(this, uri, opts);
+      const t = addTab.call(this, uri, { ...opts, inBackground: true });
+      try { openGlance(t, opener); } catch (e) { log("glance " + e + "\n" + e.stack); closeGlance({ keep: true }); }
+      return t;
+    };
+    // Shift+click (a new window in Firefox) opens the link in a card.
+    const openLinkIn = window.openLinkIn;
+    if (openLinkIn) window.openLinkIn = function (url, where, params = {}) {
+      if (where === "window" && params.openerBrowser && glanceEnabled() && !little) {
+        where = "tab";
+        params = { ...params, inBackground: false };
+      }
+      return openLinkIn.call(this, url, where, params);
+    };
+    // Escape closes the card when the page does not use the key itself (Escape is Firefox's "Stop").
+    $("#Browser\\:Stop")?.addEventListener("command", e => {
+      if (glance && e.sourceEvent instanceof KeyboardEvent) closeGlance();
+    });
+  }
+
+  function openGlance(t, parent) {
+    const split = gBrowser.addTabSplitView([parent, t], { insertBefore: parent });
+    if (!split) throw new Error("no split view");
+    glance = { tab: t, parent, split };
+    gBrowser.setSuccessor(t, parent);
+    doc.getElementById(parent.linkedPanel)?.setAttribute("sl-glance-base", "");
+    doc.getElementById(t.linkedPanel)?.setAttribute("sl-glance-card", "");
+    doc.documentElement.setAttribute("sl-glance", "");
+    glanceBox.hidden = false;
+    gBrowser.selectedTab = t;
+    positionGlance();
+    render();
+  }
+
+  /* keep: the card stays as a regular tab of the workspace (selected); otherwise it is closed.
+     closing: one of the two tabs is being closed; Firefox's split view then undoes itself. */
+  function closeGlance({ keep = false, select = true, closing = false } = {}) {
+    if (!glance) return;
+    const { tab, parent, split } = glance;
+    glance = null;
+    const unstyle = () => {
+      doc.documentElement.removeAttribute("sl-glance");
+      for (const el of doc.querySelectorAll("[sl-glance-base], [sl-glance-card]")) el.removeAttribute(el.hasAttribute("sl-glance-base") ? "sl-glance-base" : "sl-glance-card");
+      glanceBox.hidden = true;
+    };
+    unstyle();
+    if (closing) return render();
+    try { if (split.isConnected) split.unsplitTabs(); } catch (e) { log("unsplit " + e); }
+    if (keep && alive(tab)) { selectTab(tab); touchMru(tab); }
+    else {
+      if (select && alive(parent)) gBrowser.selectedTab = parent;
+      if (alive(tab)) gBrowser.removeTab(tab, { animate: false, skipPermitUnload: false });
+    }
+    render();
+  }
+
+  let glanceBox, glanceTitle;
+  function buildGlance() {
+    glanceTitle = h("span", { class: "sl-glance-title" });
+    glanceBox = h("div", { id: "sl-glance", hidden: true },
+      h("div", { class: "sl-glance-shade" }),
+      h("div", { class: "sl-glance-bar" },
+        glanceTitle,
+        h("button", { class: "sl-glance-btn", "data-act": "copy", title: "Copy link" }, icon("link")),
+        h("button", { class: "sl-glance-btn wide", "data-act": "keep", title: "Open as a tab" }, icon("expand"), h("span", { text: "Open as tab" })),
+        h("button", { class: "sl-glance-btn", "data-act": "close", title: "Close (Esc)" }, icon("x"))));
+    glanceBox.addEventListener("click", e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "keep") closeGlance({ keep: true });
+      else if (act === "copy") { if (glance) copyUrl(tabUrl(glance.tab)); }
+      else if (act === "close" || e.target.closest(".sl-glance-shade")) closeGlance();
+    });
+    doc.body.append(glanceBox);
+  }
+
+  /* The card's place is computed here (not measured: it is animated), then used by the card's CSS and by
+     the shade, which covers the page area except the card (a hole in its clip path lets clicks through). */
+  function positionGlance() {
+    if (!glance) return;
+    const box = $("#tabbrowser-tabbox").getBoundingClientRect();
+    const panels = gBrowser.tabpanels.getBoundingClientRect();
+    const side = Math.max(24, panels.width * 0.08);
+    const card = { l: panels.left - box.left + side, t: panels.top - box.top + 44, w: panels.width - 2 * side, h: panels.height - 44 - 14 };
+    const root = doc.documentElement.style;
+    root.setProperty("--gl-side", side + "px");
+    for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) glanceBox.style.setProperty(`--gl-${k}`, v + "px");
+    const l = card.l, t = card.t, r = l + card.w, b = t + card.h;
+    glanceBox.querySelector(".sl-glance-shade").style.clipPath =
+      `polygon(evenodd, 0 0, ${box.width}px 0, ${box.width}px ${box.height}px, 0 ${box.height}px, 0 0, ${l}px ${t}px, ${r}px ${t}px, ${r}px ${b}px, ${l}px ${b}px, ${l}px ${t}px)`;
+    glanceBox.style.setProperty("--gl-card-l", l + "px");
+    glanceBox.style.setProperty("--gl-card-r", box.width - r + "px");
+    glanceBox.style.setProperty("--gl-card-t", t + "px");
+    updateGlanceTitle();
+  }
+  function updateGlanceTitle() {
+    if (!glance || !glanceTitle) return;
+    const url = tabUrl(glance.tab);
+    glanceTitle.textContent = glance.tab.label && glance.tab.label !== url ? glance.tab.label : host(url) || url;
+    glanceTitle.title = url;
+  }
+
   /* ---------- Board: an infinite canvas per workspace ----------
      Sticky notes, free text and basic shapes (line, arrow, rectangle, ellipse), with colors, fonts and sizes.
      Notes have a lifetime (7 days by default, adjustable per note). When it runs out a note is kept and
@@ -2250,7 +2396,9 @@
     boardView.addEventListener("dragover", e => {
       if (!accepts(e.dataTransfer)) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "link";
+      // The effect must be one the source allows, or the drop is refused (sidebar rows only allow "move").
+      const allowed = e.dataTransfer.effectAllowed;
+      e.dataTransfer.dropEffect = /link|all|uninit/i.test(allowed) ? "link" : /copy/i.test(allowed) ? "copy" : "move";
       boardView.classList.add("drop-target");
     });
     boardView.addEventListener("dragleave", e => { if (e.target === boardView) boardView.classList.remove("drop-target"); });
@@ -2862,10 +3010,12 @@
     buildUi();
     installShortcuts();
     hookExternalLinks();
+    buildGlance();
+    hookGlance();
     if (shared.littleWindows.has(window)) enterLittle();
-    window.addEventListener("resize", () => { if (boardOpen) renderBoard(); });
+    window.addEventListener("resize", () => { if (boardOpen) renderBoard(); positionGlance(); });
     // The page area also changes size while the sidebar slides in or out.
-    new ResizeObserver(() => { if (boardOpen) positionBoard(); }).observe($("#tabbrowser-tabbox"));
+    new ResizeObserver(() => { if (boardOpen) positionBoard(); positionGlance(); }).observe($("#tabbrowser-tabbox"));
 
     const tc = gBrowser.tabContainer;
     tc.addEventListener("TabOpen", e => {
@@ -2879,6 +3029,12 @@
     tc.addEventListener("TabSelect", () => {
       const t = gBrowser.selectedTab;
       if (little) return render();
+      // Another tab chosen while a card is shown: the card goes away. Deferred: Firefox also moves the
+      // selection away from a tab it is about to close, and then the card is already being torn down.
+      if (glance && t !== glance.tab) {
+        const g = glance;
+        setTimeout(() => { if (glance === g) closeGlance({ select: false }); }, 0);
+      }
       adoptEmptyTab(t);
       if (isBlank(t)) openBoard();
       else if (boardOpen && !switching) closeBoard();
@@ -2895,6 +3051,8 @@
       const t = e.target;
       // Little windows close with their last tab.
       if (little) { if (!gBrowser.tabs.some(x => x !== t && alive(x))) setTimeout(() => window.close(), 0); return; }
+      // The card closed itself (window.close(), Ctrl+W): back to the page. Its page closed: the card stays as a tab.
+      if (glance && (t === glance.tab || t === glance.parent)) closeGlance({ closing: true });
       if (!t.selected) return;
       // Last page of the workspace closed: land on the board (favorites stay where they are).
       const own = gBrowser.tabs.some(x => x !== t && alive(x) && tabWs(x) === activeWs && !isBlank(x));
@@ -2902,7 +3060,8 @@
       const lastInWindow = !gBrowser.tabs.some(x => x !== t && alive(x));
       if (!own && !isBlank(t) && !lastInWindow) gBrowser.setSuccessor(t, placeholder(activeWs));
     });
-    for (const ev of ["TabClose", "TabAttrModified", "TabMove", "TabShow", "TabHide", "TabPinned", "TabUnpinned"]) tc.addEventListener(ev, render);
+    for (const ev of ["TabClose", "TabMove", "TabShow", "TabHide", "TabPinned", "TabUnpinned"]) tc.addEventListener(ev, render);
+    tc.addEventListener("TabAttrModified", onTabAttr);
     tc.addEventListener("SSTabRestoring", () => { if (!little) applyVisibility(); render(); });
     gBrowser.addTabsProgressListener({
       onLocationChange(browser, webProgress, request, location) {
@@ -2922,7 +3081,8 @@
             if ((t.userContextId || 0) !== want) setTimeout(() => alive(t) && rehome(t, want), 0);
           }
         }
-        render();
+        if (!t || t.selected) render();
+        else if (inView(t)) renderLater();
       },
     });
 
@@ -2933,6 +3093,8 @@
     // Notes expire while Sillage runs: the alerts in the sidebar follow.
     setInterval(render, 60e3);
     for (const t of gBrowser.tabs) if (alive(t) && !tabWs(t)) setVal(t, WS_KEY, activeWs);
+    // Split views (a card left open at the last quit) become regular tabs again.
+    for (const sv of [...(gBrowser.splitViews || [])]) try { sv.unsplitTabs(); } catch (e) { log("unsplit " + e); }
     // Firefox's native pinned tabs cannot be hidden, so unpin them.
     for (const t of [...gBrowser.tabs]) if (t.pinned) gBrowser.unpinTab(t);
     if (!shared.absorbChecked) {
@@ -2970,6 +3132,7 @@
       get D() { return D; }, get activeWs() { return activeWs; }, get palResults() { return palResults; },
       get mru() { return mru; }, get cycling() { return cycling; }, hist: () => shared.hist,
       renderNow, newTab, openItem, moveTab, moveItem, moveFolder, togglePin, toggleFavorite, deleteItem, createFolder,
+      openGlance, closeGlance, glance: () => glance, get renderCount() { return renderCount; },
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,

@@ -195,14 +195,16 @@
     ok(native?.getAttribute("disabled") === "true", "native Ctrl+S (save page) disabled");
 
     // --- tabs stay alive
-    ok(!Services.prefs.getBoolPref("browser.sessionstore.restore_on_demand") && Services.prefs.getIntPref("browser.tabs.remote.tabCacheSize") >= 4,
-      "tabs are restored at startup and recent ones stay rendered");
+    ok(Services.prefs.getBoolPref("browser.sessionstore.restore_on_demand") && Services.prefs.getIntPref("browser.tabs.remote.tabCacheSize") === 3,
+      "tabs are restored when opened and a few recent ones stay rendered (memory)");
     {
       const row = [...document.querySelectorAll("#sl-sidebar .sl-tab[data-tab]")].find(r => !r.classList.contains("active"));
       let warmed = null;
       const orig = gBrowser.warmupTab;
       gBrowser.warmupTab = t => { warmed = t; };
       row?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      ok(!warmed, "no warm-up while the mouse just passes over a row");
+      await until(() => warmed, 1000);
       gBrowser.warmupTab = orig;
       ok(!!row && !!warmed && !warmed.selected, "hovering a sidebar row warms its tab up");
     }
@@ -472,6 +474,11 @@
     const bdt = new DataTransfer();
     bdt.setData("text/x-moz-url", "https://example.com/?boardlink\nBoard link");
     const vr = view.getBoundingClientRect();
+    // Sidebar rows only allow "move": the board must accept it, or Firefox refuses the drop.
+    bdt.effectAllowed = "move";
+    const over = new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: bdt, clientX: vr.left + 300, clientY: vr.top + 650 });
+    view.dispatchEvent(over);
+    ok(over.defaultPrevented && bdt.dropEffect === "move", "the board accepts a tab dragged from the sidebar", bdt.dropEffect);
     view.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: bdt, clientX: vr.left + 300, clientY: vr.top + 650 }));
     const link = S.board().items.find(i => i.kind === "link");
     ok(!!link && link.url === "https://example.com/?boardlink" && !!document.querySelector(`.sl-blink[data-item="${link.id}"]`), "dropping a link creates a link block");
@@ -646,6 +653,78 @@
     ok(rp && rp.userContextId > 0, "remote profile gets a local Firefox container", "ucid " + rp?.userContextId);
     try { ContextualIdentityService.remove(rp.userContextId); } catch {}
     Sync.initStamps(S.D);
+
+    // --- performance: page changes in hidden tabs do not rebuild the sidebar
+    {
+      const hiddenTab = gBrowser.tabs.find(t => !t.selected && S.tabWs(t) && S.tabWs(t) !== S.activeWs && !S.tabWs(t).startsWith("*"));
+      // Wait for the sidebar to settle (pages still loading from earlier steps).
+      let last = -1;
+      for (let i = 0; i < 30 && last !== S.renderCount; i++) { last = S.renderCount; await wait(400); }
+      if (hiddenTab) {
+        const n0 = S.renderCount;
+        hiddenTab.dispatchEvent(new CustomEvent("TabAttrModified", { bubbles: true, detail: { changed: ["label"] } }));
+        await wait(400);
+        ok(S.renderCount === n0, "a title change in another workspace does not rebuild the sidebar");
+      } else ok(true, "(no hidden tab to test)");
+      const visible = gBrowser.tabs.find(t => !t.selected && S.inView(t));
+      const n1 = S.renderCount;
+      visible?.dispatchEvent(new CustomEvent("TabAttrModified", { bubbles: true, detail: { changed: ["progress"] } }));
+      await wait(400);
+      ok(S.renderCount === n1, "loading progress alone does not rebuild the sidebar");
+      for (let i = 0; i < 5; i++) visible?.dispatchEvent(new CustomEvent("TabAttrModified", { bubbles: true, detail: { changed: ["label"] } }));
+      ok(await until(() => S.renderCount > n1, 1500), "a title change in the workspace is shown");
+      await wait(400);
+      ok(S.renderCount - n1 === 1, "bursts of changes are grouped into one render", `${S.renderCount - n1} renders`);
+      ok(!/infinite/.test([...document.styleSheets].flatMap(sh => { try { return [...sh.cssRules].map(r => r.cssText); } catch { return []; } }).filter(t => /sl-alert/.test(t)).join(" ")), "alerts do not animate forever");
+    }
+
+    // --- glance: a link that would open a new tab shows in a card over the page
+    {
+      const page = S.newTab("data:text/html,<body style='margin:0'><a id=l target=_blank href='https://example.org/?glance' style='display:block;width:400px;height:300px'>link</a></body>");
+      await until(() => url(page).startsWith("data:") && !page.hasAttribute("busy"));
+      await wait(300);
+      const box = page.linkedBrowser.getBoundingClientRect();
+      const before = S.todayTabs(S.activeWs).length;
+      // Same path as a link with target=_blank: a foreground tab opened by the page.
+      window.openLinkIn("https://example.org/?glance", "tab", { openerBrowser: page.linkedBrowser, inBackground: false, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      const opened = await until(() => S.glance(), 4000);
+      const g = S.glance();
+      ok(opened && g.parent === page && sel() === g.tab, "a link opening a new tab shows in a card (glance)");
+      ok(document.documentElement.hasAttribute("sl-glance") && !document.getElementById("sl-glance").hidden, "card overlay shown");
+      ok(S.todayTabs(S.activeWs).length === before, "the card is not listed in the sidebar");
+      ok(page.linkedBrowser.docShellIsActive && g.tab.linkedBrowser.docShellIsActive, "page behind and card are both live");
+      await wait(300);
+      const card = document.getElementById(g.tab.linkedPanel).getBoundingClientRect();
+      const base = document.getElementById(page.linkedPanel).getBoundingClientRect();
+      ok(card.width > base.width * 0.6 && card.width < base.width && card.top > base.top + 20, "card floats over the page", `card ${Math.round(card.left)},${Math.round(card.top)} ${Math.round(card.width)}x${Math.round(card.height)} base ${Math.round(base.width)}x${Math.round(base.height)}`);
+      // Clicking beside the card closes it and returns to the page.
+      document.querySelector("#sl-glance .sl-glance-shade").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      ok(!S.glance() && sel() === page && !g.tab.isConnected && !document.documentElement.hasAttribute("sl-glance"), "clicking beside the card closes it");
+      ok(await until(() => !document.getElementById(page.linkedPanel).classList.contains("split-view-panel") && !gBrowser.splitViews?.length, 2000), "the page is back to a single view");
+      // Open as tab: kept as a regular tab of the workspace.
+      window.openLinkIn("https://example.org/?keep", "window", { openerBrowser: page.linkedBrowser, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      ok(await until(() => S.glance()), "shift+click opens a card too");
+      const g2 = S.glance();
+      document.querySelector('#sl-glance [data-act="keep"]').click();
+      ok(!S.glance() && sel() === g2.tab && S.todayTabs(S.activeWs).includes(g2.tab), "open as tab keeps it in the workspace");
+      // Another card, then choosing another tab dismisses it.
+      window.openLinkIn("https://example.org/?other", "tab", { openerBrowser: g2.tab.linkedBrowser, inBackground: false, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      await until(() => S.glance());
+      const g3 = S.glance();
+      S.selectTab(page);
+      ok(await until(() => !S.glance() && !g3.tab.isConnected, 1000) && sel() === page, "selecting another tab dismisses the card");
+      // Background tabs (Ctrl+click) are left alone.
+      const n0 = gBrowser.tabs.length;
+      window.openLinkIn("https://example.org/?bg", "tab", { openerBrowser: page.linkedBrowser, inBackground: true, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      ok(!S.glance() && gBrowser.tabs.length === n0 + 1 && sel() === page, "Ctrl+click still opens a background tab");
+      // The card closing itself goes back to the page.
+      window.openLinkIn("https://example.org/?selfclose", "tab", { openerBrowser: page.linkedBrowser, inBackground: false, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      await until(() => S.glance());
+      await until(() => url(S.glance().tab).startsWith("https://example.org") && !S.glance().tab.hasAttribute("busy"), 8000);
+      gBrowser.removeTab(S.glance().tab, { animate: false });
+      ok(!S.glance() && sel() === page && !document.documentElement.hasAttribute("sl-glance"), "a card closing itself returns to the page");
+      ok(await until(() => !gBrowser.splitViews?.length, 2000) && !document.getElementById(page.linkedPanel).classList.contains("split-view-panel"), "no split view left behind");
+    }
 
     // --- interface screenshot
     try {
