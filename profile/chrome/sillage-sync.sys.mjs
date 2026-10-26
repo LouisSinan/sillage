@@ -16,12 +16,9 @@ import { ContextualIdentityService } from "moz-src:///toolkit/components/context
 
 const STATE_ID = "sillage-state";
 const TOMBSTONE_TTL = 90 * 86400e3;
+const CONTAINER_COLORS = ["blue", "turquoise", "green", "yellow", "orange", "red", "pink", "purple"];
 
 let shared = null; // state shared with the browser windows (see firefox/config.js)
-// Default profile only: the list of Sillage profiles travels with its data, so other devices learn
-// about them ({ list(): [{ id, name }], add(id, name) }).
-let registryHooks = null;
-export function setRegistryHooks(hooks) { registryHooks = hooks; }
 // Per data object: entity key -> serialized synced fields, to detect local changes.
 const hashTables = new WeakMap();
 const hashesOf = D => { let m = hashTables.get(D); if (!m) hashTables.set(D, (m = new Map())); return m; };
@@ -85,7 +82,6 @@ export function noteDeletion(D, kind, id) {
 export function buildState(D) {
   const now = Date.now();
   const state = { v: 1, profiles: {}, workspaces: {} };
-  if (registryHooks) state.registry = registryHooks.list().map(p => ({ id: p.id, name: p.name }));
   for (const p of D.profiles) if (!pristine(p, "profile")) state.profiles[p.id] = { ...profileFields(p), mod: p.mod || 0 };
   D.workspaces.forEach((w, i) => { if (!pristine(w, "workspace")) state.workspaces[w.id] = { ...workspaceFields(w, i), mod: w.mod || 0 }; });
   for (const [key, time] of Object.entries(D.sync?.tombstones || {})) {
@@ -120,17 +116,15 @@ export function merge(D, remote) {
       }
       continue;
     }
-    // Only this instance's own profile lives in D; other profiles are separate Firefox profiles.
-    if (!p) continue;
-    Object.assign(p, profileFields(r), { mod: r.mod });
+    if (p) Object.assign(p, profileFields(r), { mod: r.mod });
+    else {
+      const ci = id === "default" ? { userContextId: 0 }
+        : ContextualIdentityService.create(r.name, "fingerprint", CONTAINER_COLORS[D.profiles.length % CONTAINER_COLORS.length]);
+      D.profiles.push({ id, ...profileFields(r), userContextId: ci.userContextId, mod: r.mod });
+    }
     delete tomb["profile:" + id];
     hashes.set("p:" + id, serialize(profileFields(D.profiles.find(x => x.id === id))));
     result.changed = true;
-  }
-
-  // Profiles known on other devices (default profile only).
-  if (registryHooks && Array.isArray(remote.registry)) {
-    for (const r of remote.registry) if (r?.id && r.name) registryHooks.add(r.id, r.name);
   }
 
   let reorder = false;
@@ -147,8 +141,6 @@ export function merge(D, remote) {
       }
       continue;
     }
-    // Workspaces of other profiles sync through those profiles' own Firefox Accounts.
-    if (r.profile && D.self && r.profile !== D.self && !D.profiles.some(p => p.id === r.profile)) continue;
     const profile = D.profiles.some(p => p.id === r.profile) ? r.profile : D.profiles[0].id;
     const fields = { name: r.name, icon: r.icon, hue: r.hue, profile, pinned: r.pinned || [], mod: r.mod, _order: r.order };
     if (w) {

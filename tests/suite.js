@@ -7,12 +7,10 @@
   const ok = (cond, name, extra = "") => { cond ? pass++ : fail++; L(`${cond ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
   const sel = () => gBrowser.selectedTab;
   const url = t => t.linkedBrowser.currentURI.spec;
-  const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(100); } return false; };
+  const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await wait(100); } return false; };
   const keydown = (opts) => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...opts }));
   const xulKey = (mods, key) => [...document.querySelectorAll("#sillage-keyset key")].find(k => k.getAttribute("modifiers") === mods && k.getAttribute("key") === key);
 
-  // Profiles created by the tests share this interface directory; only the default profile runs the suite.
-  if (!Sillage._t.Profiles.current().isDefault) return;
   try {
     await wait(1500);
     const ws1 = S.activeWs;
@@ -379,85 +377,66 @@
     ok(saved.workspaces.length >= 2 && saved.profiles[0].favorites.length === 1, "data saved to disk");
     ok(SessionStore.getCustomTabValue(a, "sillage-item") === favs()[0].id, "tab ↔ favorite link stored in the session");
 
-    // --- real profiles: separate Firefox profiles, one instance (window) each
-    const P = S.Profiles;
-    const launched = [];
-    P.setLauncher(async e => { launched.push(e.id); });
-    const reg0 = await P.readRegistry();
-    ok(reg0.profiles[0].id === "default", "registry lists the default profile");
-    const { entry: acme, workspace: acmeWs } = await S.createProfile("Acme");
-    const acmeDir = P.profileDir(acme);
-    ok(await IOUtils.exists(PathUtils.join(acmeDir, "chrome", "sillage.uc.js")) && await IOUtils.exists(PathUtils.join(acmeDir, "sillage-profile.json")),
-      "a new profile is a Firefox profile directory with the Sillage interface", acmeDir);
-    S.renderNow();
-    ok(!!document.querySelector(`.sl-ws-dot.foreign[data-ws="${acmeWs.id}"]`) && !!document.querySelector(".sl-ws-sep"),
-      "the other profile's workspaces appear in the sidebar, grouped");
-    S.goToWorkspace(acmeWs.id);
-    await until(() => launched.includes(acme.id));
-    const readInbox = async () => { try { return await IOUtils.readJSON(PathUtils.join(acmeDir, "sillage-inbox.json")); } catch { return []; } };
-    ok(launched.includes(acme.id) && (await readInbox()).some(a => a.type === "switch" && a.ws === acmeWs.id),
-      "choosing it hands over to that profile's instance");
-    const tx = S.newTab("https://example.com/?tx");
-    await until(() => url(tx).includes("tx"));
-    S.sendTabsTo(acmeWs.id, [tx]);
-    await until(async () => (await readInbox()).some(a => a.type === "open"));
-    ok(!tx.isConnected && (await readInbox()).some(a => a.type === "open" && a.urls.includes("https://example.com/?tx")),
-      "a tab moved to another profile reopens there");
-    ok(!S.D.profiles.some(p => p.id === acme.id), "other profiles are not part of this instance's data");
-    // Stepping through workspaces (keys, swipe) stays in this window's profile.
-    const ownLast = S.D.workspaces[S.D.workspaces.length - 1].id;
-    S.switchWs(ownLast);
-    const nLaunched = launched.length;
-    S.stepWs(1);
-    await wait(300);
-    ok(S.activeWs === ownLast && launched.length === nLaunched, "next workspace never jumps to another profile's window");
-    // The workspace editor creates workspaces in this window, whatever profiles exist.
-    S.runCommand("new-ws");
-    const wsfField = document.getElementById("sl-wsf-profile").parentNode;
-    ok(wsfField.style.display === "none", "new workspace: no profile choice");
-    document.getElementById("sl-wsf-name").value = "Editor WS";
-    [...document.querySelectorAll("#sl-wsf .sl-actions button")].find(b => b.textContent === "Save").click();
-    await wait(300);
-    const edWs = S.D.workspaces.find(w => w.name === "Editor WS");
-    ok(!!edWs && S.activeWs === edWs.id && launched.length === nLaunched, "a new workspace opens in this window");
-    await S.deleteWs(edWs.id, { confirm: false });
-
-    // Hand-over received from another instance: workspace with tabs, and cookies.
-    const selfEntry = { id: "default", dir: PathUtils.filename(PathUtils.profileDir) };
-    await P.sendToInbox(selfEntry, { type: "workspace", ws: { id: "inboxws", name: "Inbox", icon: "📚", hue: 10, pinned: [] }, urls: ["https://example.com/?inbox"] });
-    await P.sendToInbox(selfEntry, { type: "cookies", cookies: [{ host: "example.com", path: "/", name: "sillage_test", value: "1",
-      isSecure: true, isHttpOnly: false, isSession: false, expiry: Date.now() + 86400e3, sameSite: 0, schemeMap: 2 }] });
-    const tabsBefore = gBrowser.tabs.length;
-    window.browserDOMWindow.openURI(Services.io.newURI(P.HANDOFF_URL), null, Ci.nsIBrowserDOMWindow.OPEN_DEFAULTWINDOW,
-      Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL, Services.scriptSecurityManager.getSystemPrincipal());
-    await until(() => S.activeWs === "inboxws", 5000);
-    ok(S.activeWs === "inboxws" && gBrowser.tabs.some(t => S.tabWs(t) === "inboxws" && !S.isBlank(t)),
-      "hand-over: a workspace and its tabs arrive from another profile", `tabs ${tabsBefore}→${gBrowser.tabs.length}`);
-    ok(Services.cookies.getCookiesFromHost("example.com", {}).some(c => c.name === "sillage_test"), "hand-over: cookies arrive from another profile");
-    ok(!gBrowser.tabs.some(t => url(t).startsWith(P.HANDOFF_URL)), "the hand-over link never opens as a tab");
-    await S.deleteWs("inboxws", { confirm: false });
+    // --- profiles (containers)
+    const pro = S.createProfile("Acme");
+    ok(pro.userContextId > 0, "profile maps to a Firefox container", "ucid " + pro.userContextId);
+    S.saveWs({ id: null, name: "Client", icon: "🧪", hue: 30, profile: pro.id });
+    const ws3 = S.activeWs;
+    S.closePalette();
+    const w3tab = S.newTab("https://example.com/?acme");
+    ok((w3tab.userContextId || 0) === pro.userContextId, "tab opens in the profile's container");
+    ok(a.hidden, "other profile's favorites hidden");
+    await until(() => (S.hist()[pro.id] || []).some(e => e.u.includes("acme")));
+    ok((S.hist()[pro.id] || []).some(e => e.u.includes("acme")), "visit recorded in the profile history");
+    await S.query("acme");
+    ok(S.palResults.some(r => r.kind === "history" || r.kind === "tab"), "palette uses the profile history");
     S.switchWs(ws1);
+    await S.query("example.com/?acme");
+    ok(!S.palResults.some(r => r.kind === "history" && r.url.includes("acme")), "other profile's history not shown");
+    // moving a tab to a workspace of another profile reopens it in the right container
+    const mv = S.newTab("https://example.com/?move");
+    const moved2 = S.moveTab(mv, { list: "today", wsId: ws3 });
+    ok((moved2.userContextId || 0) === pro.userContextId && S.tabWs(moved2) === ws3, "cross-profile move switches container");
+    ok(!S.deleteProfile(pro.id), "profile in use cannot be deleted");
+    await S.deleteWs(ws3, { confirm: false });
+    ok(S.deleteProfile(pro.id) && !S.D.profiles.some(p => p.id === pro.id), "unused profile deleted");
 
-    // Older container-based profiles become real profiles.
-    const ucid = ContextualIdentityService.create("Legacy", "fingerprint", "blue").userContextId;
-    S.D.profiles.push({ id: "legacyp", name: "Legacy", userContextId: ucid, favorites: [] });
-    S.D.workspaces.push({ id: "legacyws", name: "Legacy WS", icon: "🧪", hue: 40, profile: "legacyp", pinned: [] });
-    const lt = gBrowser.addTrustedTab("https://example.com/?legacy", { userContextId: ucid, inBackground: true });
-    SessionStore.setCustomTabValue(lt, "sillage-ws", "legacyws");
-    Services.cookies.add("example.com", "/", "legacy_cookie", "1", true, false, false, Date.now() + 86400e3, { userContextId: ucid }, 0, 2, false);
-    await until(() => url(lt).includes("legacy"));
-    await S.migrateContainerProfiles();
-    const regM = await P.readRegistry();
-    const migrated = regM.profiles.find(p => p.name === "Legacy");
-    const mdata = migrated && await IOUtils.readJSON(PathUtils.join(P.profileDir(migrated), "sillage.json"));
-    let minbox = [];
-    try { minbox = migrated ? await IOUtils.readJSON(PathUtils.join(P.profileDir(migrated), "sillage-inbox.json")) : []; } catch {}
-    ok(!!migrated && mdata.workspaces.some(w => w.id === "legacyws"), "container profile migrated to a real profile with its workspaces");
-    ok(minbox.some(a => a.type === "open" && a.urls.some(u => u.includes("legacy"))) && minbox.some(a => a.type === "cookies" && a.cookies.some(c => c.name === "legacy_cookie")),
-      "its open tabs and sign-in cookies move over");
-    ok(!S.D.profiles.some(p => p.id === "legacyp") && !S.D.workspaces.some(w => w.id === "legacyws") && !lt.isConnected,
-      "the container profile is gone from this instance");
-    P.setLauncher(null);
+    // --- one window: profiles that ran as separate Firefox profiles come back as containers
+    const home = PathUtils.parent(PathUtils.profileDir);
+    const sepDir = PathUtils.join(home, "profiles", "sep");
+    await IOUtils.makeDirectory(PathUtils.join(sepDir, "sessionstore-backups"), { createAncestors: true });
+    await IOUtils.writeJSON(PathUtils.join(home, "profiles.json"), { profiles: [
+      { id: "default", name: "Perso", dir: PathUtils.filename(PathUtils.profileDir) },
+      { id: "sep", name: "Separate", dir: "profiles/sep" }, { id: "gone", name: "Gone", dir: "profiles/gone" }] });
+    await IOUtils.writeJSON(PathUtils.join(sepDir, "sillage.json"), { version: 2,
+      profiles: [{ id: "sep", name: "Separate", userContextId: 0, favorites: [{ type: "item", id: "sepfav", url: "https://example.com/?sepfav", title: "F" }] }],
+      workspaces: [{ id: "seppristine", name: "Personal", icon: "🏠", hue: 1, profile: "sep", pinned: [] },
+                   { id: "sepws", name: "Separate WS", icon: "🧳", hue: 90, profile: "sep", pinned: [] }] });
+    await IOUtils.writeJSON(PathUtils.join(sepDir, "sessionstore-backups", "recovery.jsonlz4"),
+      { windows: [{ tabs: [{ index: 1, entries: [{ url: "https://example.com/?sep", title: "Sep" }], extData: { "sillage-ws": "sepws" } }] }] }, { compress: true });
+    const { Sqlite } = ChromeUtils.importESModule("resource://gre/modules/Sqlite.sys.mjs");
+    const cdb = await Sqlite.openConnection({ path: PathUtils.join(sepDir, "cookies.sqlite") });
+    await cdb.execute("CREATE TABLE moz_cookies (id INTEGER PRIMARY KEY, originAttributes TEXT NOT NULL DEFAULT '', name TEXT, value TEXT, host TEXT, path TEXT, expiry INTEGER, isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER, schemeMap INTEGER, isPartitionedAttributeSet INTEGER)");
+    await cdb.execute(`INSERT INTO moz_cookies (name, value, host, path, expiry, isSecure, isHttpOnly, sameSite, schemeMap, isPartitionedAttributeSet)
+      VALUES ('sep_login', '1', 'example.com', '/', ${Date.now() + 86400e3}, 1, 0, 0, 2, 0)`);
+    await cdb.close();
+    const merged = await S.absorbSeparateProfiles();
+    const sepProf = S.D.profiles.find(p => p.name === "Separate");
+    ok(merged === 2 && sepProf?.userContextId > 0 && S.D.workspaces.some(w => w.id === "sepws" && w.profile === sepProf.id)
+      && !S.D.workspaces.some(w => w.id === "seppristine") && sepProf.favorites.some(f => f.id === "sepfav"),
+      "separate profiles come back into this window as container profiles", `merged ${merged}`);
+    const sepTab = gBrowser.tabs.find(t => S.tabWs(t) === "sepws");
+    ok(!!sepTab && (sepTab.userContextId || 0) === sepProf.userContextId, "their open tabs come back in the container");
+    ok(Services.cookies.getCookiesFromHost("example.com", { userContextId: sepProf.userContextId }).some(c => c.name === "sep_login"),
+      "their sign-in cookies come back in the container");
+    ok(!(await IOUtils.exists(PathUtils.join(home, "profiles.json"))) && await IOUtils.exists(PathUtils.join(sepDir, "sillage-merged.json")),
+      "the separate-profile registry is retired, the directory is kept");
+    S.switchWs("sepws");
+    S.stepWs(-1);
+    ok(S.D.workspaces.some(w => w.id === S.activeWs) && [...Services.wm.getEnumerator("navigator:browser")].length === 1,
+      "stepping across profiles stays in the same window");
+    await S.deleteWs("sepws", { confirm: false });
+    S.switchWs(ws1);
 
     // --- Firefox Sync: two simulated devices merging their states
     const Sync = S.sync;
@@ -503,13 +482,12 @@
     mac.workspaces.splice(mac.workspaces.findIndex(w => w.id === gone), 1);
     const r3 = Sync.merge(linux, Sync.buildState(mac));
     ok(r3.removedWorkspaces.includes(gone) && !linux.workspaces.some(w => w.id === gone), "workspace deletions propagate");
-    // Profiles created on another device reach this device's registry (default profile).
-    const regBefore = (await S.Profiles.readRegistry()).profiles.length;
-    Sync.merge(linux, { v: 1, profiles: {}, workspaces: {}, registry: [{ id: "remotep", name: "Remote" }] });
-    await until(async () => (await S.Profiles.readRegistry()).profiles.some(p => p.id === "remotep"), 3000);
-    const regAfter = await S.Profiles.readRegistry();
-    ok(regAfter.profiles.some(p => p.id === "remotep") && !linux.profiles.some(p => p.id === "remotep"),
-      "a profile created on another device is added to the local registry", `${regBefore}→${regAfter.profiles.length}`);
+    // A profile created elsewhere gets a local container.
+    const remoteProfile = { v: 1, profiles: { remotep: { name: "Remote", favorites: [], mod: Date.now() } }, workspaces: {} };
+    Sync.merge(linux, remoteProfile);
+    const rp = linux.profiles.find(p => p.id === "remotep");
+    ok(rp && rp.userContextId > 0, "remote profile gets a local Firefox container", "ucid " + rp?.userContextId);
+    try { ContextualIdentityService.remove(rp.userContextId); } catch {}
     Sync.initStamps(S.D);
 
     // --- interface screenshot

@@ -308,10 +308,6 @@
 .sl-ws-dot.active { opacity: 1; filter: none; background: var(--sl-hover); }
 .sl-ws-dot.sl-drop-into { transform: scale(1.15); }
 .sl-ws-dot { position: relative; }
-/* Workspaces of other profiles (each profile runs in its own window). */
-.sl-ws-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--sl-line); align-self: center; flex: none; }
-.sl-ws-dot.foreign { opacity: .4; filter: grayscale(1); }
-.sl-ws-dot.foreign:hover { opacity: .85; filter: none; }
 .sl-ws-dot.sl-drop-before::before, .sl-ws-dot.sl-drop-after::after { top: 5px; bottom: 5px; width: 2px; height: auto; left: auto; right: auto; }
 .sl-ws-dot.sl-drop-before::before { left: -2px; }
 .sl-ws-dot.sl-drop-after::after { right: -2px; }

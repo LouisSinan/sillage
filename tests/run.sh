@@ -6,7 +6,7 @@ source "$(dirname "$0")/../scripts/common.sh"
 [ -x "$FF_BIN" ] || { echo "Firefox not found: run \`make install\` first." >&2; exit 1; }
 loader_up_to_date || install_loader
 
-# The profile lives in its own temporary "home": Sillage writes its profile registry next to it.
+# The profile lives in its own temporary "home": Sillage looks for older separate profiles next to it.
 HOME_DIR="$(mktemp -d)"
 PROF="$HOME_DIR/profile"
 mkdir -p "$PROF/chrome"
