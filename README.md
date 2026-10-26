@@ -35,6 +35,8 @@ Firefox.
   pages: when a workspace has nothing open, its board is shown instead. Tools: <kbd>V</kbd> select,
   <kbd>N</kbd> note, <kbd>T</kbd> text, <kbd>L</kbd> line, <kbd>A</kbd> arrow, <kbd>R</kbd> rectangle,
   <kbd>O</kbd> ellipse; <kbd>Shift</kbd> constrains, <kbd>Del</kbd> deletes, <kbd>Space</kbd> or the middle button pans.
+  Drag a tab, a pinned item or a link onto the board to add a small link block: clicking it goes to the tab
+  (or opens the page), and the sidebar is left unchanged.
 - **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
   "Open in…" moves the tab into the workspace of your choice. Can be turned off from the palette.
 - **Sync** through your Firefox Account: workspaces, pinned items, folders, boards, profiles and favorites

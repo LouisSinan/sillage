@@ -439,6 +439,47 @@
     S.select(rect.id);
     document.getElementById("sl-board-wrap").dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
     ok(!S.board().items.includes(rect), "Delete removes the selection");
+    // The style bar floats: selecting something does not move the canvas.
+    S.select(null);
+    const viewTop = view.getBoundingClientRect().top;
+    S.select(txt.id);
+    ok(!document.getElementById("sl-board-style").hidden && view.getBoundingClientRect().top === viewTop, "the style bar does not push the board down");
+    // Text tool: a click creates a text being edited, which survives the click.
+    S.select(null);
+    const nItems = S.board().items.length;
+    drag("text", 200, 600, 200, 600);
+    await wait(100);
+    const newTxt = S.board().items.find(i => i.kind === "text" && i.id !== txt.id);
+    const newTxtDom = newTxt && document.querySelector(`.sl-btext[data-item="${newTxt.id}"]`);
+    ok(S.board().items.length === nItems + 1 && newTxtDom?.isContentEditable && document.activeElement === newTxtDom, "text tool: clicking the board starts a text");
+    newTxtDom.textContent = "typed";
+    newTxtDom.blur();
+    ok(newTxt.text === "typed", "the typed text is kept");
+    // Less than a day left: amber warning; red only once expired.
+    const soon = S.addNote(700, 300, "soon");
+    soon.expires = Date.now() + 3600e3;
+    S.renderNow();
+    document.activeElement?.blur?.();
+    S.renderNow();
+    const soonTime = document.querySelector(`[data-note="${soon.id}"] .sl-note-time`);
+    ok(/rgb\((\d+), (\d+)/.test(getComputedStyle(soonTime).color) && (([, r, g]) => +g > 40)(getComputedStyle(soonTime).color.match(/rgb\((\d+), (\d+)/)) && !document.querySelector(`[data-note="${soon.id}"]`).classList.contains("expired"),
+      "less than a day left is not shown in red", getComputedStyle(soonTime).color);
+    S.deleteBoardItem(soon.id);
+    // Dropping a tab on the board makes a link block; the sidebar is unchanged; clicking it goes to the tab.
+    const linkTab = S.newTab("https://example.com/?boardlink", { background: true });
+    await until(() => url(linkTab).includes("boardlink"));
+    const pinnedBefore = JSON.stringify(ws().pinned), todayBefore = S.todayTabs(S.activeWs).length;
+    const bdt = new DataTransfer();
+    bdt.setData("text/x-moz-url", "https://example.com/?boardlink\nBoard link");
+    const vr = view.getBoundingClientRect();
+    view.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: bdt, clientX: vr.left + 300, clientY: vr.top + 650 }));
+    const link = S.board().items.find(i => i.kind === "link");
+    ok(!!link && link.url === "https://example.com/?boardlink" && !!document.querySelector(`.sl-blink[data-item="${link.id}"]`), "dropping a link creates a link block");
+    ok(JSON.stringify(ws().pinned) === pinnedBefore && S.todayTabs(S.activeWs).length === todayBefore, "the sidebar is left unchanged");
+    S.openLink(link);
+    ok(sel() === linkTab, "clicking a link block goes to its tab");
+    S.openBoard();
+    gBrowser.removeTab(linkTab);
     for (const i of [...S.board().items]) S.deleteBoardItem(i.id);
     S.renderNow();
     S.closeBoard();

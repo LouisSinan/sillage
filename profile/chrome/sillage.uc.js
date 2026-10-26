@@ -2203,9 +2203,13 @@
           moved ||= Math.hypot(dx, dy) * view().z > 2;
           for (const k of ["x", "x1", "x2"]) if (k in it) it[k] = orig[k] + dx;
           for (const k of ["y", "y1", "y2"]) if (k in it) it[k] = orig[k] + dy;
-          if (it.kind === "text") { itemEl.style.left = it.x + "px"; itemEl.style.top = it.y + "px"; }
+          if (it.kind === "text" || it.kind === "link") { itemEl.style.left = it.x + "px"; itemEl.style.top = it.y + "px"; }
           else renderShapes();
-        }, () => { if (moved) save(); });
+        }, () => {
+          if (moved) save();
+          // A click (no move) on a link goes to its tab.
+          else if (it.kind === "link") openLink(it);
+        });
         return;
       }
       // Background: deselect and pan.
@@ -2233,6 +2237,40 @@
       clearTimeout(boardWrap.saveT);
       boardWrap.saveT = setTimeout(save, 400);
     }, { passive: false });
+    // Drop a tab, pinned item or link: it becomes a link block (the sidebar is left as it is).
+    const dropUrl = dt => {
+      const moz = dt.getData("text/x-moz-url");
+      if (moz) { const [url, title] = moz.split("\n"); return { url, title }; }
+      const uri = dt.getData("text/uri-list").split("\n").find(l => l && !l.startsWith("#"));
+      if (uri) return { url: uri.trim() };
+      const txt = dt.getData("text/plain").trim();
+      return /^(https?|file):\/\/\S+$/.test(txt) ? { url: txt } : null;
+    };
+    const accepts = dt => ["text/x-moz-url", "text/uri-list", "text/plain"].some(t => dt.types.includes(t));
+    boardView.addEventListener("dragover", e => {
+      if (!accepts(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "link";
+      boardView.classList.add("drop-target");
+    });
+    boardView.addEventListener("dragleave", e => { if (e.target === boardView) boardView.classList.remove("drop-target"); });
+    boardView.addEventListener("drop", e => {
+      boardView.classList.remove("drop-target");
+      const from = dragging; // from the sidebar: tab or pinned item
+      const d = dropUrl(e.dataTransfer);
+      if (!d?.url) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const p = toWorld(e.clientX, e.clientY);
+      const t = from?.tab, r = from?.item ? findItem(from.item) : null;
+      addLink(p.x - 20, p.y - 16, {
+        url: d.url,
+        title: t?.label || r?.item.customTitle || r?.item.title || d.title,
+        icon: t ? tabIcon(t) : r?.item.icon,
+        item: r?.item.id || (t && tabItemId(t)) || null,
+      });
+      if (from) endDrag();
+    });
     boardView.addEventListener("dblclick", e => {
       if (!isBackground(e.target)) return;
       const p = toWorld(e.clientX, e.clientY);
@@ -2290,7 +2328,7 @@
   function select(id) {
     selectedId = id;
     for (const el of boardWorld.querySelectorAll(".sl-selected")) el.classList.remove("sl-selected");
-    if (id) boardWorld.querySelector(`[data-note="${id}"], .sl-btext[data-item="${id}"]`)?.classList.add("sl-selected");
+    if (id) boardWorld.querySelector(`[data-note="${id}"], .sl-btext[data-item="${id}"], .sl-blink[data-item="${id}"]`)?.classList.add("sl-selected");
     renderShapes();
     drawStyleBar();
   }
@@ -2336,13 +2374,17 @@
       class: `sl-bs-choice${v === value ? " on" : ""}`, text: label, style, onclick: () => set(key, v),
     }));
     const parts = [];
-    if (kind === "note") {
+    if (kind === "link") {
+      parts.push(group("Link", h("button", { class: "sl-bs-choice", text: "Open", onclick: () => openLink(sel.obj) })));
+    } else if (kind === "note") {
       parts.push(group("Color", ...swatches("color", NOTE_COLORS, c => `var(--bn-${c})`, sel ? cur.color : st.noteColor)));
     } else {
       parts.push(group(SHAPES.has(kind) ? "Stroke" : "Color", ...swatches("color", INKS, inkVar, cur.color || "ink")));
     }
     if (kind === "rect" || kind === "ellipse") parts.push(group("Fill", ...swatches("fill", FILLS, fillVar, cur.fill || "none")));
-    if (SHAPES.has(kind)) {
+    if (kind === "link") {
+      // No style for links.
+    } else if (SHAPES.has(kind)) {
       parts.push(group("Width", ...choice("width", Object.entries(WIDTHS).map(([k, px]) => [k, "", `--lw:${Math.max(1.5, px)}px`]), cur.width || "medium")
         .map(b => (b.classList.add("sl-bs-width"), b))));
     } else {
@@ -2375,6 +2417,7 @@
       const el = boardWorld.querySelector(`[data-note="${n.id}"]`);
       el?.classList.add("sl-enter");
       el?.querySelector("textarea").focus();
+      setTimeout(() => boardWorld.querySelector(`[data-note="${n.id}"] textarea`)?.focus(), 0);
     }
     render();
     return n;
@@ -2387,7 +2430,8 @@
     if (boardOpen) {
       renderBoard();
       select(it.id);
-      if (!text) editText(boardWorld.querySelector(`.sl-btext[data-item="${it.id}"]`), it);
+      // After the click that created it: the click itself moves the focus to the canvas.
+      if (!text) setTimeout(() => editText(boardWorld.querySelector(`.sl-btext[data-item="${it.id}"]`), it), 0);
     }
     save();
     return it;
@@ -2405,6 +2449,28 @@
       save();
     };
     el.addEventListener("blur", done, { once: true });
+  }
+
+  /* Link blocks: a tab, pinned item or link dropped on the board. Clicking one goes to its tab (or opens it);
+     the sidebar is not changed. */
+  function addLink(x, y, { url, title, icon: ic, item = null }) {
+    const it = { kind: "link", id: uid(), x: Math.round(x), y: Math.round(y), url, title: title || host(url), icon: ic && !ic.startsWith("data:") ? ic : null, item };
+    board().items.push(it);
+    save();
+    if (boardOpen) { renderBoard(); select(it.id); }
+    return it;
+  }
+  function openLink(it) {
+    const t = (it.item && tabForItem(it.item))
+      || gBrowser.tabs.find(x => alive(x) && inView(x) && tabUrl(x) === it.url)
+      || gBrowser.tabs.find(x => alive(x) && tabUrl(x) === it.url);
+    if (t) return selectTab(t);
+    if (it.item && findItem(it.item)) return openItem(it.item);
+    newTab(it.url);
+  }
+  function linkEl(it) {
+    return h("div", { class: `sl-blink${it.id === selectedId ? " sl-selected" : ""}`, "data-item": it.id, title: `${it.title}\n${it.url}`, style: `left:${it.x}px;top:${it.y}px` },
+      favicon(it.url, it.icon), h("span", { class: "sl-blink-title", text: it.title }));
   }
 
   function textEl(it) {
@@ -2541,7 +2607,8 @@
     if (selectedId && !b.notes.some(n => n.id === selectedId) && !b.items.some(i => i.id === selectedId)) selectedId = null;
     const focused = doc.activeElement?.closest?.(".sl-note")?.dataset.note;
     renderShapes();
-    boardWorld.replaceChildren(boardSvg, ...b.items.filter(i => i.kind === "text").map(textEl), ...b.notes.map(noteEl));
+    boardWorld.replaceChildren(boardSvg, ...b.items.filter(i => i.kind === "text").map(textEl),
+      ...b.items.filter(i => i.kind === "link").map(linkEl), ...b.notes.map(noteEl));
     if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
     boardWrap.apply();
     boardWrap.classList.toggle("empty", !b.notes.length && !b.items.length);
@@ -2907,7 +2974,7 @@
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
-      openBoard, closeBoard, addNote, addText, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
+      openBoard, closeBoard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
       get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },
       openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
     },

@@ -473,10 +473,15 @@
 .sl-board-tool.active { opacity: 1; background: var(--bd-sel); color: white; }
 .sl-board-tool .sl-icon { width: 17px; height: 17px; }
 /* Style bar (selection or tool) */
+/* Floating over the canvas, so nothing moves when it appears. */
 #sl-board-style {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 16px; flex: none;
-  border-bottom: 1px solid hsl(var(--sl-h) 20% 50% / .15); font-size: 12px; animation: sl-fade .12s;
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 5; width: max-content; max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center; padding: 7px 12px; font-size: 12px;
+  border-radius: 12px; background: hsl(var(--sl-h) 20% 99%); box-shadow: 0 6px 24px hsl(0 0% 0% / .16), 0 0 0 1px hsl(var(--sl-h) 20% 50% / .15);
+  animation: sl-style-in .14s var(--sl-ease);
 }
+@keyframes sl-style-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+@media (prefers-color-scheme: dark) { #sl-board-style { background: hsl(var(--sl-h) 16% 18%); } }
 #sl-board-style[hidden] { display: none; }
 .sl-bs-group { display: flex; align-items: center; gap: 3px; }
 .sl-bs-label { margin-right: 4px; color: hsl(var(--sl-h) 10% 50%); }
@@ -494,7 +499,7 @@
 .sl-bs-choice.on { background: var(--bd-sel); color: white; }
 .sl-bs-width { position: relative; width: 30px; }
 .sl-bs-width::before { content: ""; position: absolute; left: 7px; right: 7px; top: 50%; height: var(--lw); transform: translateY(-50%); border-radius: 3px; background: currentColor; }
-.sl-bs-delete { display: grid; place-items: center; margin-left: auto; }
+.sl-bs-delete { display: grid; place-items: center; }
 .sl-bs-delete .sl-icon { width: 15px; height: 15px; }
 .sl-board-zoom { color: hsl(var(--sl-h) 10% 50%); font-size: 12px; min-width: 40px; text-align: right; }
 .sl-board-btn {
@@ -508,6 +513,18 @@
 }
 #sl-board-view.panning, #sl-board-view.space { cursor: grabbing; }
 #sl-board-view.drawing { cursor: crosshair; }
+#sl-board-view.drop-target { box-shadow: inset 0 0 0 2px var(--bd-sel); }
+/* Link blocks */
+.sl-blink {
+  position: absolute; display: flex; align-items: center; gap: 8px; max-width: 200px; height: 34px; padding: 0 10px 0 8px;
+  border-radius: 9px; background: hsl(0 0% 100%); color: hsl(230 18% 16%); font-size: 12.5px; cursor: pointer;
+  box-shadow: 0 1px 2px hsl(0 0% 0% / .12), 0 3px 10px hsl(0 0% 0% / .1); transition: box-shadow .12s;
+}
+.sl-blink:hover { box-shadow: 0 0 0 1.5px var(--bd-sel), 0 3px 10px hsl(0 0% 0% / .12); }
+.sl-blink.sl-selected { box-shadow: 0 0 0 2px var(--bd-sel), 0 3px 10px hsl(0 0% 0% / .12); }
+.sl-blink .sl-fav { width: 18px; height: 18px; }
+.sl-blink-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .sl-blink { background: hsl(var(--sl-h) 14% 22%); color: hsl(230 20% 92%); } }
 #sl-board-view:focus { outline: none; }
 /* Shapes (SVG layer) and free text */
 #sl-board-svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
@@ -559,7 +576,7 @@
 @keyframes sl-alert { 50% { box-shadow: 0 0 0 5px hsl(0 80% 52% / .25); transform: scale(1.15); } }
 .sl-note-head { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 8px; cursor: move; background: hsl(0 0% 0% / .05); }
 .sl-note-time { flex: 1; font-size: 11px; opacity: .7; }
-.sl-note.expiring .sl-note-time { color: hsl(0 70% 40%); opacity: 1; font-weight: 600; }
+.sl-note.expiring .sl-note-time { color: hsl(30 85% 30%); opacity: 1; font-weight: 600; }
 .sl-note-btn { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; margin: 0; border: none; border-radius: 5px; background: none; color: inherit; opacity: .55; appearance: none; }
 .sl-note-btn:hover { opacity: 1; background: hsl(0 0% 0% / .08); }
 .sl-note-btn .sl-icon { width: 13px; height: 13px; }
@@ -572,7 +589,7 @@
 /* Remaining lifetime: the bar shrinks over the 7 days. */
 .sl-note-life { height: 4px; background: hsl(0 0% 0% / .08); }
 .sl-note-life-bar { height: 100%; background: hsl(0 0% 0% / .35); }
-.sl-note.expiring .sl-note-life-bar { background: hsl(0 70% 50%); }
+.sl-note.expiring .sl-note-life-bar { background: hsl(35 90% 48%); }
 
 /* ---------- Little Sillage window (links from other apps) ---------- */
 :root.sl-little #sl-sidebar, :root.sl-little #sl-peek { display: none !important; }
