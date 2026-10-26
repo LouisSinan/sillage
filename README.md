@@ -129,11 +129,14 @@ profile/user.js   profile preferences
 scripts/          one script per command; common.sh + platform/<linux|macos>.sh
 bin/sillage       Linux launcher
 tests/            test suite (headless Firefox, throwaway profile)
+docs/             technical documentation
 assets/           icon
 ```
 
 The interface reloads with Sillage: edit `profile/chrome/`, then restart it. Logs are written to
-`sillage.log` in the profile directory.
+`sillage.log` in the profile directory. The [technical documentation](docs/README.md) covers the
+architecture, the data model, how each feature is built, Sync, testing and the Firefox internals Sillage
+relies on.
 
 ## Sync
 
@@ -154,6 +157,12 @@ Workspaces, pinned items, favorites and boards are stored in `sillage.json`, and
 `sillage-history.json`, both in the profile directory. Sillage makes no network
 requests of its own beyond search suggestions from your default search engine (when enabled in Firefox),
 Firefox Sync when you are signed in, and, on macOS, a daily check for new Firefox releases.
+
+## Contributing
+
+Contributions are welcome: see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md). In short, edit `profile/chrome/`,
+run `make test`, restart Sillage to try the change, and open a pull request using the template. Coding agents
+follow [AGENTS.md](AGENTS.md).
 
 ## Acknowledgements
 

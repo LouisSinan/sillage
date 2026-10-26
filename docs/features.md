@@ -1,0 +1,104 @@
+# Features: how they are built
+
+Each section names the functions to start from in `profile/chrome/sillage.uc.js`.
+
+## Workspaces and tabs
+
+- A tab belongs to a workspace through its `sillage-ws` value, or through the pinned item it was opened from
+  (see [data model](data-model.md)). `tabWs()` and `inView()` answer "where does this tab live".
+- `switchWs(id)` remembers the selected tab of the workspace being left, selects the target's last tab (or
+  its placeholder, which shows the board), then `applyVisibility()` hides every tab that is not in view with
+  `gBrowser.hideTab`. Firefox keeps hidden tabs loaded.
+- New tabs opened while a workspace is active get its id (`TabOpen` handler). A tab opened in the wrong
+  container (for example a link from another app) is reopened in the workspace's container (`rehome`).
+- **Placeholder**: Firefox always needs a selected tab. When a workspace has nothing open, a blank tab marked
+  `sillage-blank` stays selected behind the board and is never listed (`placeholder`, `isBlank`,
+  `adoptEmptyTab`).
+- **Closing** a tab returns to the previous tab of the workspace: `updateSuccessor()` keeps Firefox's tab
+  successor in line with the most-recently-used list (`mru`).
+- **Archiving**: `archive()` closes today tabs not viewed for `settings.archiveHours`.
+- **Tab freshness**: tabs are restored when first opened (`restore_on_demand`), then stay alive; hovering a
+  sidebar row for 120 ms calls `gBrowser.warmupTab` so the switch is instant.
+
+## Sidebar
+
+- Built once by `buildUi()`; the navigation toolbar (`#navigator-toolbox`) is moved into it and the native tab
+  strip is hidden by CSS.
+- Content is rebuilt by `renderNow()`: favorites grid, workspace title, pinned tree (`node()` recursion for
+  nested folders), today tabs. See [rendering](architecture.md#rendering).
+- Drag and drop (`wireDnd`, `computeDrop`, `moveTab`, `moveItem`, `moveFolder`, `moveWorkspace`): one
+  `dragging` descriptor, drop targets computed from the pointer position, marks as CSS classes.
+- Renaming (`startRename`): an input replaces the title; Enter or a click elsewhere commits, Escape cancels.
+- Hidden sidebar: hovering the left edge shows it temporarily (*peek*, `wirePeek`, `endPeek`).
+- Workspace color: the hue is a registered CSS property (`--sl-h`) so it animates; `setHue()` picks the
+  shortest way around the color wheel.
+
+## Profiles and pinned extensions
+
+- `createProfile()` creates a container with `ContextualIdentityService.create`. Changing a workspace's
+  profile reopens its tabs in the new container (`saveWs` → `rehome`).
+- Extensions are shared, but each workspace hides the toolbar widgets listed in `hiddenExtensions`
+  (`applyExtensionPins`, `setExtensionHidden`, context menu entries added by `wireExtensionPins`).
+
+## Command palette
+
+`openPalette(mode)` and `query()`: URL fixup, search engine suggestions, open tabs, pinned items, palette
+history (per profile) and commands (`COMMANDS`, `dynamicCommands`). `choose()` runs the selection; commands
+are handled in `runCommand`. Inline autofill completes the best match.
+
+## Recent tabs switcher
+
+Ctrl+Shift+→ / ← (`cycleStep`, `endCycle`): cycles through `mru` limited to the current workspace and
+selects on key release. Thumbnails are captured with `drawSnapshot` shortly after a tab is shown
+(`captureThumb`).
+
+## Glance
+
+A link that would open a foreground tab shows in a card over the current page.
+
+- `hookGlance()` wraps `gBrowser.addTab`. When the call comes from a page (`openerBrowser` is the selected
+  tab), is not in the background and not from another app, the tab is created in the background and
+  `openGlance()` shows it. It also wraps `window.openLinkIn` so Shift+click (normally a new window) opens a
+  card, and listens to Firefox's Stop command so Escape closes the card when the page does not use the key.
+- `openGlance()` puts the page and the new tab in a **Firefox split view** (`gBrowser.addTabSplitView`), which
+  keeps both pages live, then restyles the two panels with the `[sl-glance-base]` / `[sl-glance-card]`
+  attributes. `#sl-glance` adds the shade (a clip path with a hole where the card is) and the buttons.
+  `positionGlance()` computes the card's place instead of measuring it, because the card is animated.
+- `closeGlance({ keep })` undoes the split view and either keeps the tab (selected, listed in the sidebar) or
+  closes it. Selecting another tab closes the card; this is deferred by one tick because Firefox also moves the
+  selection away from a tab it is about to close.
+- The card's tab is left out of the sidebar and of the recent tabs list while it is a card.
+
+## Board
+
+An infinite canvas per workspace (`buildBoard`, `renderBoard`, `refreshBoard`), shown over the page area
+(`positionBoard`).
+
+- Notes (`addNote`, `noteEl`): text, color, font, size, and a lifetime. `remaining()` gives the label and
+  state; an expired note is kept and raises an alert (board, orb, workspace icon) until it is renewed
+  (`renewNote`), snoozed (`snoozeNote`) or deleted. `tickBoard()` refreshes countdowns every 30 s without
+  rebuilding.
+- Items (`board().items`): free text (`addText`, `editText`), shapes drawn in an SVG layer (`renderShapes`,
+  `shapeGeometry`; Shift constrains), and link blocks (`addLink`, `openLink`) created by dropping a tab,
+  pinned item or link on the board.
+- Tools and the floating style bar: `setTool`, `select`, `drawStyleBar`. The last chosen style becomes the
+  default for new items (`boardStyle`).
+- `refreshBoard()` skips rebuilding while text is being edited or something is dragged.
+
+## Little Sillage
+
+`hookExternalLinks()` replaces `window.browserDOMWindow` with a wrapper whose `openURI` sends links from
+other apps (`OPEN_EXTERNAL`) to a small separate window (`openLittle`, `enterLittle`). "Open in…" moves the
+tab into a workspace of the main window (`adoptIntoWorkspace`).
+
+## Keyboard shortcuts
+
+`SHORTCUTS` become XUL `<key>` elements (they act after the page had a chance to handle the key). Keys that
+pages tend to consume (Ctrl+arrows, Ctrl+1…9, Ctrl+Shift+arrows, Ctrl+Shift+C) are handled by a capturing
+`keydown` listener on the window instead. `disableNativeKeys()` disables Firefox's keys that clash. On macOS,
+Ctrl becomes ⌘ except for Ctrl+1…9, and workspace switching is ⌘⌥+arrows.
+
+## macOS updates
+
+Firefox inside `Sillage.app` cannot update itself. `checkFirefoxUpdate()` compares the version once a day with
+Mozilla's product details and shows a notice suggesting `make update`.
