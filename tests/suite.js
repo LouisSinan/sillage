@@ -397,6 +397,25 @@
     const mv = S.newTab("https://example.com/?move");
     const moved2 = S.moveTab(mv, { list: "today", wsId: ws3 });
     ok((moved2.userContextId || 0) === pro.userContextId && S.tabWs(moved2) === ws3, "cross-profile move switches container");
+    // pinned extensions per profile
+    const ext = document.createXULElement("toolbaritem");
+    ext.id = "sltest_example_com-browser-action";
+    ext.setAttribute("label", "Test Ext");
+    document.getElementById("nav-bar-customization-target").append(ext);
+    S.switchWs(ws3);
+    ok(S.dynamicCommands().some(c => c.cmd === "ext-hide:" + ext.id && c.title.includes("Acme")), "palette offers to hide a pinned extension in this profile");
+    S.runCommand("ext-hide:" + ext.id);
+    ok(getComputedStyle(ext).display === "none", "extension hidden in this profile");
+    S.switchWs(ws1);
+    await wait(50);
+    ok(getComputedStyle(ext).display !== "none", "still shown in the other profile");
+    S.switchWs(ws3);
+    S.renderNow();
+    ok(getComputedStyle(ext).display === "none" && S.dynamicCommands().some(c => c.cmd === "ext-show:" + ext.id), "hidden again on return; palette offers to show it");
+    S.runCommand("ext-show:" + ext.id);
+    ok(getComputedStyle(ext).display !== "none", "shown again");
+    ext.remove();
+    S.switchWs(ws1);
     ok(!S.deleteProfile(pro.id), "profile in use cannot be deleted");
     await S.deleteWs(ws3, { confirm: false });
     ok(S.deleteProfile(pro.id) && !S.D.profiles.some(p => p.id === pro.id), "unused profile deleted");

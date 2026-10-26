@@ -179,6 +179,8 @@
 :root.sillage #nav-bar-customization-target > toolbaritem[id$="-browser-action"],
 :root.sillage #nav-bar-customization-target > toolbarbutton[id$="-browser-action"] { order: 102; }
 :root.sillage #unified-extensions-button { order: 103; margin-inline-end: -68px !important; }
+/* Pinned extensions hidden in the current profile (see "extensions per profile"). */
+:root.sillage #nav-bar [sl-profile-hidden] { display: none !important; }
 
 #sl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 6px; scrollbar-width: none; }
 #sl-scroll.sl-slide-l { animation: sl-slide-l .3s var(--sl-ease); }

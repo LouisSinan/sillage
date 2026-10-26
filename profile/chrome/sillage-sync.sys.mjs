@@ -28,7 +28,7 @@ const hashesOf = D => { let m = hashTables.get(D); if (!m) hashTables.set(D, (m 
 // Keys starting with "_" are runtime-only (timers…).
 const serialize = o => JSON.stringify(o, (k, v) => (k.startsWith("_") ? undefined : v));
 
-const profileFields = p => ({ name: p.name, favorites: p.favorites });
+const profileFields = p => ({ name: p.name, favorites: p.favorites, hiddenExtensions: p.hiddenExtensions || [] });
 const workspaceFields = (w, order) => ({
   name: w.name, icon: w.icon, hue: w.hue, profile: w.profile, pinned: w.pinned,
   notes: w.board?.notes || [], order,
@@ -37,7 +37,7 @@ const workspaceFields = (w, order) => ({
 /* A workspace or profile nobody has touched yet (fresh install defaults). */
 function pristine(entity, kind) {
   if (entity.mod) return false;
-  return kind === "profile" ? !entity.favorites.length : !entity.pinned.length && !entity.board?.notes?.length;
+  return kind === "profile" ? !entity.favorites.length && !entity.hiddenExtensions?.length : !entity.pinned.length && !entity.board?.notes?.length;
 }
 
 /* Stamps entities whose synced fields changed since the last call. Returns true if anything changed. */

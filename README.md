@@ -20,6 +20,8 @@ Firefox.
   <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar, or the palette.
 - **Profiles.** Each workspace is assigned a profile backed by a Firefox container: separate cookies and
   sessions (for example two Google accounts side by side), plus separate palette history and favorites.
+  All profiles share one window. Extensions are shared too, but each profile shows its own pinned extension
+  icons: right-click an icon → *Hide in the … profile*, or use the palette to hide or show one.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
   suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match.
 - **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling with page

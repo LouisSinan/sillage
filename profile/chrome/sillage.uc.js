@@ -809,6 +809,7 @@
     wireSidebar();
     wireResize(resizer);
     wirePeek();
+    wireExtensionPins();
     buildPalette();
     buildWsEditor();
     buildBoard();
@@ -881,6 +882,7 @@
     setHue(ws.hue);
     doc.documentElement.style.setProperty("--sl-w", D.settings.sidebarWidth + "px");
     doc.documentElement.classList.toggle("sl-hidden", !sidebarVisible);
+    applyExtensionPins();
 
     favBox.replaceChildren(...prof.favorites.map((it, i) => {
       const t = tabForItem(it.id);
@@ -1324,6 +1326,50 @@
     toast("URL copied");
   }
 
+  /* ---------- extensions per profile ----------
+     Extensions are shared by all profiles (one Firefox profile), but each profile chooses which pinned
+     extension icons it shows; hidden ones stay available in the extensions menu. */
+
+  const pinnedExtensions = () => [...doc.querySelectorAll("#nav-bar-customization-target > [id$='-browser-action']")];
+  function extensionName(el) {
+    return el.querySelector(".unified-extensions-item-name")?.textContent?.trim()
+      || el.querySelector("toolbarbutton")?.getAttribute("label") || el.getAttribute("label") || el.id.replace(/-browser-action$/, "");
+  }
+  function applyExtensionPins() {
+    const hidden = new Set(curProf()?.hiddenExtensions || []);
+    for (const el of pinnedExtensions()) el.toggleAttribute("sl-profile-hidden", hidden.has(el.id));
+  }
+  function setExtensionHidden(id, hide) {
+    const p = curProf();
+    const list = (p.hiddenExtensions ||= []).filter(x => x !== id);
+    if (hide) list.push(id);
+    p.hiddenExtensions = list;
+    applyExtensionPins();
+    save();
+    const el = doc.getElementById(id);
+    toast(hide ? `${el ? extensionName(el) : "Extension"} hidden in the ${p.name} profile — show it again from the palette`
+               : `${el ? extensionName(el) : "Extension"} shown in the ${p.name} profile`, hide ? 3500 : 1800);
+  }
+  function wireExtensionPins() {
+    // Extensions are added to the toolbar while the window loads, and when pinned later.
+    new MutationObserver(applyExtensionPins).observe($("#nav-bar-customization-target"), { childList: true });
+    // Right-click on a pinned extension: hide it in the current profile.
+    const menu = $("#toolbar-context-menu");
+    if (!menu) return;
+    const item = doc.createXULElement("menuitem");
+    item.id = "sl-ext-hide";
+    item.addEventListener("command", () => item._ext && setExtensionHidden(item._ext, true));
+    const sep = doc.createXULElement("menuseparator");
+    menu.prepend(item, sep);
+    menu.addEventListener("popupshowing", e => {
+      if (e.target !== menu) return;
+      const el = menu.triggerNode?.closest?.("#nav-bar-customization-target > [id$='-browser-action']");
+      item._ext = el?.id || null;
+      item.hidden = sep.hidden = !el;
+      if (el) item.setAttribute("label", `Hide in the ${curProf().name} profile`);
+    });
+  }
+
   /* ---------- command palette ---------- */
 
   let pal, palInput, palList, palMode = "new", palResults = [], palSel = 0, palSeq = 0, palTouched = false;
@@ -1419,11 +1465,19 @@
         out.push({ cmd: "del-profile:" + p.id, title: `Delete profile ${p.name} (cookies and history)`, kw: "profile remove" });
       }
     }
+    const prof = curProf();
+    for (const el of pinnedExtensions()) {
+      const hidden = (prof.hiddenExtensions || []).includes(el.id);
+      out.push({ cmd: `ext-${hidden ? "show" : "hide"}:${el.id}`, kw: "extension toolbar pin profile",
+        title: `${hidden ? "Show" : "Hide"} extension ${extensionName(el)} in the ${prof.name} profile` });
+    }
     return out;
   }
 
   function runCommand(cmd) {
     if (cmd.startsWith("ws:")) return switchWs(cmd.slice(3));
+    if (cmd.startsWith("ext-hide:")) return setExtensionHidden(cmd.slice(9), true);
+    if (cmd.startsWith("ext-show:")) return setExtensionHidden(cmd.slice(9), false);
     if (cmd.startsWith("del-profile:")) return deleteProfile(cmd.slice(12));
     switch (cmd) {
       case "new-ws": return openWsEditor(null);
@@ -2405,7 +2459,7 @@
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, board, purgeNotes, get boardOpen() { return boardOpen; },
-      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles,
+      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);
