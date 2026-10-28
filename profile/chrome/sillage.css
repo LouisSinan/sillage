@@ -609,6 +609,26 @@
 #sl-little-bar .sl-little-more { padding: 0 6px; }
 #sl-little-bar .sl-little-more .sl-icon { transform: rotate(90deg); width: 14px; height: 14px; }
 #sl-little-bar .sl-little-close { padding: 0 6px; }
+#sl-little-bar .sl-little-prof .sl-icon { width: 13px; height: 13px; }
+/* Profile chooser shown before the link loads */
+#sl-little-pick {
+  position: fixed; inset: 0; z-index: 230; display: grid; place-items: center;
+  background: radial-gradient(140% 100% at 0% 0%, var(--sl-bg1), var(--sl-bg2)); color: var(--sl-fg); font: menu; font-size: 13px;
+}
+.sl-lp-card { width: min(380px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 6px; }
+.sl-lp-title { font-size: 16px; font-weight: 650; }
+.sl-lp-url { color: var(--sl-fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+.sl-lp-list { display: flex; flex-direction: column; gap: 4px; }
+.sl-lp-btn {
+  display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; margin: 0; border: none; border-radius: 9px;
+  background: var(--sl-hover); color: inherit; font: inherit; text-align: start; appearance: none;
+}
+.sl-lp-btn:hover { background: var(--sl-active); }
+.sl-lp-btn:focus-visible, .sl-lp-btn:focus { outline: 2px solid var(--sl-accent); outline-offset: 1px; }
+.sl-lp-btn kbd { font: inherit; font-size: 11px; min-width: 18px; padding: 1px 4px; border-radius: 4px; background: var(--sl-active); color: var(--sl-fg-dim); text-align: center; }
+.sl-lp-name { flex: 1; font-weight: 600; }
+.sl-lp-ws { color: var(--sl-fg-dim); }
+.sl-lp-hint { margin-top: 8px; font-size: 11px; color: var(--sl-fg-faint); }
 
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {

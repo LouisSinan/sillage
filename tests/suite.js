@@ -602,6 +602,7 @@
     S.switchWs(wsBack);
 
     // --- Little Sillage: links from other apps open in a small window
+    const lpExtra = S.D.profiles.length < 2 ? S.createProfile("Little test") : null;
     const before2 = [...Services.wm.getEnumerator("navigator:browser")].length;
     window.browserDOMWindow.openURI(Services.io.newURI("https://example.com/?little"), null,
       Ci.nsIBrowserDOMWindow.OPEN_DEFAULTWINDOW, Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL, Services.scriptSecurityManager.getSystemPrincipal());
@@ -610,14 +611,29 @@
     ok(!!lw, "external link opens a Little Sillage window", "windows: " + before2);
     if (lw) {
       ok(lw.document.documentElement.classList.contains("sl-little") && !!lw.document.getElementById("sl-little-bar"), "little window shows its compact bar");
+      // Several profiles: the window asks which one to use before loading anything.
+      await until(() => !!lw.document.getElementById("sl-little-pick"), 5000);
+      const pick = lw.document.getElementById("sl-little-pick");
+      ok(!!pick && pick.querySelectorAll(".sl-lp-btn").length === S.D.profiles.length, "little window asks for the profile first");
+      ok(!lw.gBrowser.tabs.some(t => t.linkedBrowser.currentURI.spec.includes("little")), "nothing is loaded before the choice");
+      const lpProf = S.D.profiles.find(p => p.userContextId > 0);
+      pick?.querySelector(`[data-profile="${lpProf.id}"]`)?.click();
       await until(() => lw.gBrowser.selectedBrowser.currentURI.spec.includes("little"));
+      ok(!lw.document.getElementById("sl-little-pick") && (lw.gBrowser.selectedTab.userContextId || 0) === lpProf.userContextId,
+        "the link opens in the chosen profile's container");
+      ok(lw.gBrowser.tabs.length === 1 && S.defaultLittleProfile() === lpProf, "the choice is offered first next time");
+      ok(!!lw.document.querySelector(".sl-little-prof"), "the bar shows the page's profile");
       const mainTabsBefore = gBrowser.tabs.length;
       lw.Sillage._t.moveToMain(ws1);
       await until(() => lw.closed, 5000);
-      const adopted = gBrowser.tabs.find(t => url(t).includes("?little"));
+      let adopted;
+      await until(() => (adopted = gBrowser.tabs.find(t => url(t).includes("?little"))), 5000);
       ok(!!adopted && S.tabWs(adopted) === ws1 && sel() === adopted, "\"Open in\" moves the tab into the workspace", `tabs ${mainTabsBefore}→${gBrowser.tabs.length}`);
       ok(lw.closed, "little window closes after its last tab moves");
+      ok((adopted.userContextId || 0) === S.profOf(ws1).userContextId, "the moved tab takes the workspace's profile");
     }
+    if (lpExtra) S.deleteProfile(lpExtra.id);
+    delete S.D.settings.littleProfile;
 
     // --- persistence
     await wait(800);

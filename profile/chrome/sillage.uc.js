@@ -349,6 +349,7 @@
     if (from && inView(cur, from)) lastSelected.set(from, cur);
     activeWs = id;
     D.lastWs = id;
+    (D.lastWsByProfile ||= {})[wsById(id).profile] = id;
     let target = tab;
     if (!target) {
       const remembered = lastSelected.get(id);
@@ -2040,11 +2041,67 @@
     window.browserDOMWindow = wrapper;
   }
 
+  /* With several profiles, the window first asks which one to open the link with (its container decides
+     which accounts the page is signed in to); nothing is loaded before the choice. */
   function openLittle(url) {
-    const w = window.openDialog(AppConstants.BROWSER_CHROME_URL, "_blank", "chrome,all,dialog=no,width=1000,height=720", url);
+    const pick = D.profiles.length > 1;
+    const w = window.openDialog(AppConstants.BROWSER_CHROME_URL, "_blank", "chrome,all,dialog=no,width=1000,height=720", pick ? "about:blank" : url);
     shared.littleWindows.add(w);
+    if (pick) (shared.littlePick ||= new WeakMap()).set(w, url);
     return w;
   }
+
+  /* The profile offered first: the last one chosen here, otherwise the main window's. */
+  function defaultLittleProfile() {
+    return D.profiles.find(p => p.id === D.settings.littleProfile) || profOf(D.lastWs);
+  }
+
+  let pickBox = null;
+  function showProfilePick(url) {
+    const def = defaultLittleProfile();
+    const choose = p => {
+      if (!pickBox) return;
+      pickBox.remove();
+      pickBox = null;
+      window.removeEventListener("keydown", onKey, true);
+      D.settings.littleProfile = p.id;
+      save();
+      const blank = gBrowser.selectedTab;
+      const t = gBrowser.addTrustedTab(url, { userContextId: p.userContextId, inBackground: false, skipAnimation: true });
+      gBrowser.selectedTab = t;
+      if (blank !== t) gBrowser.removeTab(blank, { animate: false });
+      gBrowser.selectedBrowser.focus();
+      renderLittle();
+    };
+    const onKey = e => {
+      const m = /^Digit([1-9])$/.exec(e.code);
+      if (e.key === "Escape") window.close();
+      else if (m && !e.ctrlKey && !e.metaKey && !e.altKey && D.profiles[+m[1] - 1]) choose(D.profiles[+m[1] - 1]);
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const btns = [...pickBox.querySelectorAll(".sl-lp-btn")];
+        const i = btns.indexOf(doc.activeElement);
+        btns[(i + (e.key === "ArrowDown" ? 1 : -1) + btns.length) % btns.length]?.focus();
+      } else return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    pickBox = h("div", { id: "sl-little-pick" },
+      h("div", { class: "sl-lp-card" },
+        h("div", { class: "sl-lp-title", text: "Open with which profile?" }),
+        h("div", { class: "sl-lp-url", text: host(url) || url, title: url }),
+        h("div", { class: "sl-lp-list" }, D.profiles.map((p, i) => h("button", {
+          class: `sl-lp-btn${p === def ? " default" : ""}`, "data-profile": p.id, onclick: () => choose(p),
+        },
+        h("kbd", { text: String(i + 1) }),
+        h("span", { class: "sl-lp-name", text: p.name }),
+        h("span", { class: "sl-lp-ws", text: D.workspaces.filter(w => w.profile === p.id).map(w => w.icon).join(" ") })))),
+        h("div", { class: "sl-lp-hint", text: "Enter opens the highlighted profile · Esc cancels" })));
+    doc.body.append(pickBox);
+    window.addEventListener("keydown", onKey, true);
+    setTimeout(() => pickBox?.querySelector(".sl-lp-btn.default")?.focus(), 0);
+  }
+
+  const tabProfileOf = t => D.profiles.find(p => p.userContextId === (t.userContextId || 0)) || null;
 
   function mainWindow() {
     for (const w of Services.wm.getEnumerator("navigator:browser")) {
@@ -2065,17 +2122,29 @@
     littleBar = h("div", { id: "sl-little-bar" });
     $("#tabbrowser-tabbox").prepend(littleBar);
     renderLittle();
+    const url = shared.littlePick?.get(window);
+    if (url) { shared.littlePick.delete(window); showProfilePick(url); }
   }
 
   function renderLittle() {
     if (!littleBar) return;
     const t = gBrowser.selectedTab;
     const main = mainWindow();
-    const target = main?.Sillage?.activeWorkspace;
+    // "Open in": the main window's workspace, or the last used workspace of the tab's profile (moving the tab
+    // into another profile's workspace would reload it signed out).
+    const prof = tabProfileOf(t);
+    let target = main?.Sillage?.activeWorkspace;
+    if (prof && target && target.profile !== prof.id) {
+      target = D.workspaces.find(w => w.id === D.lastWsByProfile?.[prof.id] && w.profile === prof.id) || D.workspaces.find(w => w.profile === prof.id) || target;
+    }
     littleBar.replaceChildren(...[
       favicon(tabUrl(t), tabIcon(t), t.hasAttribute("busy")),
       h("span", { class: "sl-little-host", text: host(tabUrl(t)), title: tabUrl(t) }),
       h("span", { class: "sl-little-spacer" }),
+      // Profile of the page; another one reopens it in that profile's container.
+      D.profiles.length > 1 && prof && !pickBox && h("button", { class: "sl-little-prof", title: "Profile (cookies, sign-ins): click to reopen the page in another one",
+        onclick: e => popup(e, D.profiles.map(p => ({ label: p.name, disabled: p === prof, fn: () => { D.settings.littleProfile = p.id; save(); rehome(gBrowser.selectedTab, p.userContextId); renderLittle(); } }))) },
+        icon("user"), h("span", { text: prof.name })),
       h("button", { class: "sl-little-open", title: "Move this tab into the main window", onclick: () => moveToMain(target?.id) },
         target ? `Open in ${target.icon} ${target.name}` : "Open in Sillage"),
       main && D.workspaces.length > 1 && h("button", { class: "sl-little-more", title: "Choose a workspace", onclick: e => popup(e, D.workspaces.map(w => ({ label: `${w.icon}  ${w.name}`, fn: () => moveToMain(w.id) }))) }, icon("chev")),
@@ -3234,7 +3303,7 @@
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
       get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },
-      openLittle, moveToMain, enterLittle, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
+      openLittle, moveToMain, enterLittle, defaultLittleProfile, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
     },
   };
   doc.defaultView.windowUtils.loadSheetUsingURIString("chrome://sillage/content/sillage.css", doc.defaultView.windowUtils.AUTHOR_SHEET);

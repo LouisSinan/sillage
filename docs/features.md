@@ -102,6 +102,12 @@ An infinite canvas per workspace (`buildBoard`, `renderBoard`, `refreshBoard`), 
 other apps (`OPEN_EXTERNAL`) to a small separate window (`openLittle`, `enterLittle`). "Open in…" moves the
 tab into a workspace of the main window (`adoptIntoWorkspace`).
 
+With several profiles, `openLittle` opens the window on `about:blank` and leaves the URL in
+`shared.littlePick`; `enterLittle` then shows `showProfilePick`, and the link is only loaded once a profile
+is chosen, in its container. The choice is remembered in `D.settings.littleProfile`
+(`defaultLittleProfile`). "Open in" targets the main window's workspace, or, when that workspace belongs to
+another profile, the last workspace used with the page's profile (`D.lastWsByProfile`, set by `switchWs`).
+
 ## Keyboard shortcuts
 
 `SHORTCUTS` become XUL `<key>` elements (they act after the page had a chance to handle the key). Keys that
