@@ -27,9 +27,11 @@ that a Firefox update can be checked quickly. Firefox's source for a given file 
 | `window.openLinkIn` | Shift+click → Glance |
 | `window.browserDOMWindow.openURI` with `OPEN_EXTERNAL` | Little Sillage |
 | `Browser:Stop` command | Escape closes a Glance card |
-| `gBrowser.addTabsProgressListener` (`onLocationChange`) | Visits, placeholders, container checks |
+| `gBrowser.addTabsProgressListener` (`onLocationChange`, `LOCATION_CHANGE_SAME_DOCUMENT` flag) | Visits, placeholders, container checks, resetting `pageEngaged` |
+| Chrome `keydown` / `mousedown` listeners see events aimed at a remote page with the `<browser>` as target | `pageEngaged` (has the user interacted with the page) |
 | `TabAttrModified` `detail.changed` | Deciding when the sidebar needs a render |
 | `windowGlobal.drawSnapshot` | Switcher thumbnails |
+| `gBrowser.getIcon` (a data URI), tab `image` attribute (`moz-remote-image://?url=<data URI>`), `page-icon:` | Favicons and their cache |
 | `#navigator-toolbox`, `#TabsToolbar`, `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` | Layout |
 
 ## Other services

@@ -29,7 +29,15 @@ Each section names the functions to start from in `profile/chrome/sillage.uc.js`
 - Drag and drop (`wireDnd`, `computeDrop`, `moveTab`, `moveItem`, `moveFolder`, `moveWorkspace`): one
   `dragging` descriptor, drop targets computed from the pointer position, marks as CSS classes.
 - Renaming (`startRename`): an input replaces the title; Enter or a click elsewhere commits, Escape cancels.
-- Hidden sidebar: hovering the left edge shows it temporarily (*peek*, `wirePeek`, `endPeek`).
+- Hidden sidebar: hovering the left edge shows it temporarily (*peek*, `wirePeek`, `endPeek`). The peek zone
+  and the peeked sidebar sit above the board and Glance cards (z-index).
+- Horizontal swipe on the sidebar (`wheel` listener in the sidebar events): one `stepWs` per gesture. Wheel
+  events carry no gesture phase, so after a step the trackpad momentum is ignored and a new gesture is
+  recognised by a 250 ms pause, a change of direction, or deltas growing again after having decayed
+  (below 40 % of the peak).
+- Icons (`favicon`): the tab's icon, then the site's cached icon (`rememberIcon` on `TabAttrModified`
+  `image`, `cachedIcon`), then `page-icon:`, then a colored letter; each failing source falls through to the
+  next. A loading tab keeps its known icon, dimmed; the spinner only shows when no icon is known yet.
 - Workspace color: the hue is a registered CSS property (`--sl-h`) so it animates; `setHue()` picks the
   shortest way around the color wheel.
 
@@ -44,12 +52,15 @@ Each section names the functions to start from in `profile/chrome/sillage.uc.js`
 
 `openPalette(mode)` and `query()`: URL fixup, search engine suggestions, open tabs, pinned items, palette
 history (per profile) and commands (`COMMANDS`, `dynamicCommands`). `choose()` runs the selection; commands
-are handled in `runCommand`. Inline autofill completes the best match.
+are handled in `runCommand`. Inline autofill completes the best match. Tabs (`byRecency`) and pinned items
+of the current workspace are listed before those of other workspaces.
 
 ## Recent tabs switcher
 
 Ctrl+Shift+→ / ← (`cycleStep`, `endCycle`): cycles through `mru` limited to the current workspace and
-selects on key release. Thumbnails are captured with `drawSnapshot` shortly after a tab is shown
+selects on key release. The board is an entry of `mru` too (`boardKey(wsId)`, one object per workspace,
+touched by `openBoard`); `shownEntry()` is the board when it is open, otherwise the selected tab. The sidebar
+walk (Ctrl+Shift+↑ / ↓, `sidebarEntries`) has a board entry between pinned items and today tabs. Thumbnails are captured with `drawSnapshot` shortly after a tab is shown
 (`captureThumb`).
 
 ## Glance
@@ -97,6 +108,11 @@ tab into a workspace of the main window (`adoptIntoWorkspace`).
 pages tend to consume (Ctrl+arrows, Ctrl+1…9, Ctrl+Shift+arrows, Ctrl+Shift+C) are handled by a capturing
 `keydown` listener on the window instead. `disableNativeKeys()` disables Firefox's keys that clash. On macOS,
 Ctrl becomes ⌘ except for Ctrl+1…9, and workspace switching is ⌘⌥+arrows.
+
+Ctrl+arrows are left to a text field (word navigation) only when the user has clicked or typed in the page
+(`pageEngaged`, reset on `TabSelect` and on a new document): fields that pages focus on their own while
+loading (search engines, chat apps) would otherwise swallow the shortcut. Chrome fields (address bar,
+sidebar inputs) always keep it.
 
 ## macOS updates
 

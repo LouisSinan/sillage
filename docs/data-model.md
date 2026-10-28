@@ -34,7 +34,7 @@ Stored in the profile directory, written atomically (`IOUtils.writeJSON` with a 
 Pinned tree nodes:
 
 ```js
-{ type: "item", id, url, title, customTitle, icon }
+{ type: "item", id, url, title, customTitle, icon }   // icon: only an http(s) URL, if any (see below)
 { type: "folder", id, name, open, children: [node] }   // folders nest to any depth
 ```
 
@@ -42,6 +42,11 @@ Pinned tree nodes:
 are runtime-only and never saved or synced.
 
 `sillage-history.json` holds the palette history, keyed by profile id.
+
+`sillage-icons.json` maps a host to the last favicon seen for it (a data URI, at most 32 KB, about 800
+hosts). Firefox hands tab icons out as data URIs that only live with the tab, so this local, unsynced cache
+is what unloaded pinned items, favorites, the palette and the switcher show. `loadData()` moves the data
+URIs that older versions stored in `item.icon` into it.
 
 ## Tab values
 

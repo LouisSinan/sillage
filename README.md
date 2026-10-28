@@ -15,18 +15,22 @@ Firefox.
 ## Features
 
 - **Sidebar** with favorites, pinned tabs, folders and today tabs. Toggle it per window with
-  <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it.
+  <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it
+  (over the board too).
 - **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd>,
-  <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar, or the palette.
+  <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar (one workspace per swipe, swipe again
+  right away to keep going), or the palette.
 - **Profiles.** Each workspace is assigned a profile backed by a Firefox container: separate cookies and
   sessions (for example two Google accounts side by side), plus separate palette history and favorites.
   All profiles share one window. Extensions are shared too, but each workspace shows its own pinned extension
   icons: right-click an icon → *Hide in …*; right-click the extensions button → *Show hidden extensions*, or use
   the palette.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
-  suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match.
+  suggestions, open tabs, pinned items, history and commands, with inline autofill of the best match. Tabs and
+  pinned items of the current workspace come before those of other workspaces.
 - **Recent tabs switcher** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>): Alt+Tab-style cycling through the current workspace, with page
-  thumbnails; the tab opens when the keys are released.
+  thumbnails; the tab opens when the keys are released. The board counts as a tab here, and in
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd>.
 - **Board**: each workspace has an infinite canvas with sticky notes, free text and basic shapes (line, arrow,
   rectangle, ellipse); colors, fill, stroke width, font and text size can be set for everything. Notes last 7 days
   by default, adjustable per note (or never expire). An expired note is kept and raises a red alert on the
@@ -100,7 +104,7 @@ workspace is <kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>←</kbd> / <kbd>→</kbd>, as i
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> | Recent tabs: go further back (hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd>, release to open, <kbd>Esc</kbd> to cancel) |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> | Recent tabs: move back towards the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> | Previous / next entry in the sidebar |
-| <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd> | Previous / next workspace (in text fields, moves by word as usual) |
+| <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd> | Previous / next workspace (in a text field you clicked or typed in, moves by word as usual) |
 | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to workspace *n* (physical key, works with any keyboard layout) |
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | Pin / unpin the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Add / remove the current tab from favorites |
@@ -153,8 +157,8 @@ collection that regular Firefox clients ignore.
 
 ## Data
 
-Workspaces, pinned items, favorites and boards are stored in `sillage.json`, and palette history in
-`sillage-history.json`, both in the profile directory. Sillage makes no network
+Workspaces, pinned items, favorites and boards are stored in `sillage.json`, palette history in
+`sillage-history.json` and the last icon of each site in `sillage-icons.json`, all in the profile directory. Sillage makes no network
 requests of its own beyond search suggestions from your default search engine (when enabled in Firefox),
 Firefox Sync when you are signed in, and, on macOS, a daily check for new Firefox releases.
 

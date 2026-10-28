@@ -114,7 +114,7 @@
 :root.sl-hidden.sl-peek #sl-sidebar {
   animation: sl-peek-in .22s var(--sl-ease);
   visibility: visible;
-  position: fixed; top: 8px; bottom: 8px; left: 8px; z-index: 50;
+  position: fixed; top: 8px; bottom: 8px; left: 8px; z-index: 180; /* above the board and glance cards */
   margin-left: 0; opacity: 1; pointer-events: auto;
   border-radius: 12px; padding-right: 8px;
   background: radial-gradient(140% 100% at 0% 0%, var(--sl-bg1), var(--sl-bg2));
@@ -130,7 +130,7 @@
 :root.sillage #navigator-toolbox { margin-top: 0 !important; }
 :root.sillage #fullscr-toggler { display: none !important; }
 
-#sl-peek { position: fixed; left: 0; top: 0; bottom: 0; width: 7px; z-index: 49; display: none; }
+#sl-peek { position: fixed; left: 0; top: 0; bottom: 0; width: 7px; z-index: 179; display: none; }
 :root.sl-hidden #sl-peek { display: block; }
 :root[inDOMFullscreen] #sl-peek { display: none; }
 
@@ -236,6 +236,7 @@
 .sl-rename { flex: 1; font: inherit; color: inherit; background: var(--sl-input); border: 0; outline: 1.5px solid var(--sl-accent); border-radius: 5px; padding: 3px 5px; min-width: 0; }
 
 .sl-fav { width: 16px; height: 16px; border-radius: 4px; flex: none; object-fit: contain; }
+.sl-fav.loading { opacity: .5; transition: opacity .3s; }
 .sl-letter { display: grid; place-items: center; font-size: 10px; font-weight: 700; color: white; background: hsl(var(--lh) 55% 50%); }
 .sl-spin { border: 2px solid var(--sl-line); border-top-color: var(--sl-accent); border-radius: 50%; animation: sl-spin .7s linear infinite; width: 12px; height: 12px; margin: 2px; }
 @keyframes sl-spin { to { transform: rotate(360deg); } }

@@ -12,6 +12,7 @@
   const WS_KEY = "sillage-ws", ITEM_KEY = "sillage-item", BLANK_KEY = "sillage-blank";
   const DATA_PATH = PathUtils.join(PathUtils.profileDir, "sillage.json");
   const HIST_PATH = PathUtils.join(PathUtils.profileDir, "sillage-history.json");
+  const ICONS_PATH = PathUtils.join(PathUtils.profileDir, "sillage-icons.json");
   const IS_MAC = AppConstants.platform === "macosx";
   const accel = e => (IS_MAC ? e.metaKey : e.ctrlKey);
   const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
@@ -125,6 +126,20 @@
         shared.data = d;
         shared.persist = () => IOUtils.writeJSON(DATA_PATH, shared.data, { tmpPath: DATA_PATH + ".tmp" });
         try { shared.hist = await IOUtils.readJSON(HIST_PATH); } catch { shared.hist = {}; }
+        try { shared.icons = await IOUtils.readJSON(ICONS_PATH); } catch { shared.icons = {}; }
+        // Icons used to be kept on pinned items, sometimes as long data URIs (synced): move them to the cache.
+        const moveIcons = list => {
+          for (const n of list || []) {
+            if (n.type === "folder") moveIcons(n.children);
+            else if (n.icon && !/^https?:/.test(n.icon)) {
+              const ic = plainIcon(n.icon);
+              if (ic && n.url) shared.icons[iconKey(n.url)] ??= ic;
+              delete n.icon;
+            }
+          }
+        };
+        for (const p of d.profiles) moveIcons(p.favorites);
+        for (const w of d.workspaces) moveIcons(w.pinned);
         if (d.legacyProfileId) {
           if (shared.hist.perso) { shared.hist[DEFAULT_PROFILE] = shared.hist.perso; delete shared.hist.perso; }
           delete d.legacyProfileId;
@@ -186,6 +201,31 @@
   function folderWithin(id, ancestor) {
     for (let r = findFolder(id); r; r = r.parent && findFolder(r.parent.id)) if (r.f.id === ancestor) return true;
     return false;
+  }
+
+  /* ---------- favicon cache ----------
+     Firefox hands tab icons out as data: URIs (or moz-remote-image:// wrapping one), which only live as long
+     as the tab. The last icon seen for each site is kept in a local file (not synced: it is rebuilt by
+     browsing), so unloaded pinned items, favorites, the palette and the switcher keep their icons. */
+
+  const iconKey = url => { try { return new URL(url).host; } catch { return ""; } };
+  function plainIcon(ic) {
+    if (!ic) return null;
+    if (ic.startsWith("moz-remote-image:")) { try { ic = new URL(ic).searchParams.get("url"); } catch { return null; } }
+    return ic && /^(data:image\/|https?:)/.test(ic) && ic.length < 32768 ? ic : null;
+  }
+  const cachedIcon = url => (/^https?:/.test(url) && shared.icons?.[iconKey(url)]) || null;
+  let iconSaveTimer;
+  function rememberIcon(t) {
+    const url = tabUrl(t), key = iconKey(url), ic = plainIcon(gBrowser.getIcon(t) || t.getAttribute("image"));
+    if (!/^https?:/.test(url) || !key || !ic || shared.icons[key] === ic) return;
+    const I = shared.icons;
+    delete I[key];
+    I[key] = ic; // most recent last
+    const keys = Object.keys(I);
+    if (keys.length > 800) for (const k of keys.slice(0, keys.length - 700)) delete I[k];
+    clearTimeout(iconSaveTimer);
+    iconSaveTimer = setTimeout(() => IOUtils.writeJSON(ICONS_PATH, I, { tmpPath: ICONS_PATH + ".tmp" }).catch(() => {}), 2000);
   }
 
   /* ---------- per-profile history (palette) ---------- */
@@ -365,10 +405,21 @@
 
   let mru = [], cycling = false, cycleList = [], cycleIdx = 0, switcher;
 
+  /* The board takes part in the recent list like a tab: one entry per workspace. */
+  const boardKeys = new Map();
+  function boardKey(wsId = activeWs) {
+    if (!boardKeys.has(wsId)) boardKeys.set(wsId, { boardWs: wsId });
+    return boardKeys.get(wsId);
+  }
+  const isBoardKey = x => !!x?.boardWs;
+  const liveEntry = x => (isBoardKey(x) ? !!wsById(x.boardWs) : alive(x));
+  // What is on screen: the board when it is open, otherwise the selected tab.
+  const shownEntry = () => (boardOpen ? boardKey() : gBrowser.selectedTab);
+
   function touchMru(t) {
-    if (cycling || !alive(t) || t === glance?.tab) return;
-    mru = [t, ...mru.filter(x => x !== t && alive(x))].slice(0, 100);
-    updateSuccessor();
+    if (cycling || !liveEntry(t) || t === glance?.tab) return;
+    mru = [t, ...mru.filter(x => x !== t && liveEntry(x))].slice(0, 100);
+    if (!isBoardKey(t)) updateSuccessor();
   }
 
   /* Closing the active tab returns to the previously active tab (same workspace), not its neighbour. */
@@ -381,8 +432,9 @@
   function cycleStep(dir) {
     if (!cycling) {
       // Only the tabs of the current workspace (its own tabs and its profile's favorites).
-      cycleList = mru.filter(t => alive(t) && !isBlank(t) && inView(t));
-      if (cycleList[0] !== gBrowser.selectedTab) cycleList.unshift(gBrowser.selectedTab);
+      cycleList = mru.filter(t => (isBoardKey(t) ? t.boardWs === activeWs : alive(t) && !isBlank(t) && inView(t)));
+      const cur = shownEntry();
+      cycleList = [cur, ...cycleList.filter(t => t !== cur)];
       if (cycleList.length < 2) return;
       cycling = true;
       cycleIdx = 1; // first press, in either direction: the previous tab
@@ -397,8 +449,9 @@
     const t = cycleList[cycleIdx];
     cycling = false;
     switcher.hidden = true;
-    if (!cancel && cycleIdx > 0 && alive(t)) selectTab(t);
-    else touchMru(gBrowser.selectedTab);
+    if (!cancel && cycleIdx > 0 && isBoardKey(t)) openBoard();
+    else if (!cancel && cycleIdx > 0 && alive(t)) selectTab(t);
+    else touchMru(shownEntry());
   }
 
   /* Thumbnails: captured while a tab is displayed, shown in the switcher. */
@@ -430,6 +483,13 @@
     const cards = [];
     for (let i = first; i < Math.min(n, first + VISIBLE); i++) {
       const t = cycleList[i];
+      if (isBoardKey(t)) {
+        cards.push(h("div", { class: `sl-sw-card board${i === cycleIdx ? " sel" : ""}${i === 0 ? " origin" : ""}` },
+          h("div", { class: "sl-sw-preview empty" },
+            h("div", { class: "sl-sw-icon" }, h("img", { class: "sl-fav", src: "chrome://sillage/content/logo-mark.svg", alt: "" }))),
+          h("span", { class: "sl-sw-title", text: "Board" })));
+        continue;
+      }
       const w = wsById(tabWs(t));
       const bmp = thumbs.get(t);
       let preview;
@@ -460,6 +520,7 @@
     for (const it of curProf().favorites) out.push({ item: it });
     const walk = list => { for (const n of list) n.type === "folder" ? n.open && walk(n.children) : out.push({ item: n }); };
     walk(ws.pinned);
+    out.push({ board: true }); // the orb, between pinned items and today tabs
     for (const t of todayTabs(ws.id)) if (!isBlank(t)) out.push({ tab: t });
     return out;
   }
@@ -468,10 +529,11 @@
     const list = sidebarEntries();
     if (!list.length) return;
     const sel = gBrowser.selectedTab, selItem = tabItemId(sel);
-    let i = list.findIndex(e => (e.tab ? e.tab === sel : e.item.id === selItem));
+    let i = list.findIndex(e => (e.board ? boardOpen : !boardOpen && (e.tab ? e.tab === sel : e.item.id === selItem)));
     i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
     const e = list[i];
-    if (e.tab) selectTab(e.tab);
+    if (e.board) openBoard();
+    else if (e.tab) selectTab(e.tab);
     else openItem(e.item.id);
   }
 
@@ -851,14 +913,19 @@
     buildBoard();
   }
 
+  /* A site's icon: the given one, then the cached one, then Firefox's favicon database, then a letter.
+     While loading, a known icon stays visible (dimmed); the spinner only shows when there is none yet. */
   function favicon(url, iconUrl, busy = false) {
-    if (busy) return h("span", { class: "sl-fav sl-spin" });
+    const web = /^https?:/.test(url);
+    const known = iconUrl || cachedIcon(url);
+    if (busy && !known) return h("span", { class: "sl-fav sl-spin" });
+    const srcs = [...new Set([iconUrl, cachedIcon(url), web && `page-icon:${url}`].filter(Boolean))];
     const hs = host(url);
-    const letter = () => h("span", { class: "sl-fav sl-letter", style: `--lh:${hueOf(hs)}`, text: (hs[0] || "?").toUpperCase() });
-    const src = iconUrl || (/^https?:/.test(url) ? `page-icon:${url}` : null);
-    if (!src) return /^https?:/.test(url) ? letter() : icon("globe", "sl-fav");
-    const img = h("img", { class: "sl-fav", src });
-    img.addEventListener("error", () => img.replaceWith(letter()), { once: true });
+    const letter = () => h("span", { class: `sl-fav sl-letter${busy ? " loading" : ""}`, style: `--lh:${hueOf(hs)}`, text: (hs[0] || "?").toUpperCase() });
+    if (!srcs.length) return web ? letter() : icon("globe", "sl-fav");
+    let i = 0;
+    const img = h("img", { class: `sl-fav${busy ? " loading" : ""}`, src: srcs[0] });
+    img.addEventListener("error", () => { if (++i < srcs.length) img.src = srcs[i]; else img.replaceWith(letter()); });
     return img;
   }
 
@@ -908,6 +975,7 @@
   const SHOWN_ATTRS = new Set(["label", "image", "busy", "soundplaying", "muted", "pending", "activemedia-blocked", "crashed", "pictureinpicture"]);
   function onTabAttr(e) {
     const t = e.target;
+    if (e.detail?.changed?.includes("image")) rememberIcon(t);
     if (!e.detail?.changed?.some(a => SHOWN_ATTRS.has(a))) return;
     if (little || inView(t) || t === glance?.tab) renderLater();
   }
@@ -976,12 +1044,10 @@
       title: `${w.name}${showProfile ? " · " + profById(w.profile).name : ""} (Ctrl+${i + 1})`, text: w.icon,
     })));
 
-    // Remember pinned items' favicons and titles for display when unloaded.
+    // Remember pinned items' titles for display when unloaded (icons: see the favicon cache).
     for (const { item } of walkItems()) {
       const t = tabForItem(item.id);
       if (!t) continue;
-      const ic = tabIcon(t);
-      if (ic && !ic.startsWith("data:") && ic !== item.icon) { item.icon = ic; save(); }
       if (!item.customTitle && t.label && t.label !== item.title && !t.hasAttribute("pending") && tabUrl(t) === item.url) item.title = t.label;
     }
   }
@@ -1086,21 +1152,34 @@
       wsMenu(e, dot ? dot.dataset.ws : activeWs);
     });
 
-    // Horizontal swipe (touchpad) switches workspaces.
-    // One step per gesture: after a step, wheel events are ignored until they stop for a moment
-    // (macOS trackpads keep sending momentum events long after the fingers lift).
-    let acc = 0, spent = false, lastWheel = 0;
+    // Horizontal swipe (touchpad) switches workspaces, one step per gesture.
+    // macOS trackpads keep sending decaying momentum events after the fingers lift, and wheel events
+    // carry no gesture phase. After a step, the momentum is ignored; a new gesture is recognised when
+    // the events stop for a moment, change direction, or grow again after having decayed.
+    let acc = 0, spent = false, lastWheel = 0, peak = 0, floor = 0, stepDir = 0;
     side.addEventListener("wheel", e => {
       const now = Date.now();
       if (now - lastWheel > 250) { acc = 0; spent = false; }
       lastWheel = now;
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || e.target.closest("#navigator-toolbox")) return;
       e.preventDefault();
-      if (spent) return;
-      acc += e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX;
+      const dx = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX, mag = Math.abs(dx);
+      if (spent) {
+        // The gesture that made the step may still speed up: only a rise after a real decay counts.
+        const decayed = floor < peak * 0.4;
+        peak = Math.max(peak, mag);
+        floor = decayed ? Math.min(floor, mag) : mag;
+        const reversed = Math.sign(dx) !== stepDir && mag > 2;
+        if (!reversed && !(decayed && mag > Math.max(floor * 2.5, floor + 6))) return;
+        acc = 0;
+        spent = false;
+      }
+      acc += dx;
       if (Math.abs(acc) < 120) return;
       spent = true;
-      stepWs(Math.sign(acc));
+      peak = floor = mag;
+      stepDir = Math.sign(acc);
+      stepWs(stepDir);
     }, { passive: false });
 
     wireDnd();
@@ -1735,9 +1814,11 @@
     palTouched = false;
     const q = raw.trim();
     const res = [];
+    // The current workspace comes first, then the others, most recent first within each.
+    const byRecency = (a, b) => (inView(b) - inView(a)) || b.lastAccessed - a.lastAccessed;
     if (!q) {
       gBrowser.tabs.filter(t => alive(t) && !t.selected && tabUrl(t) !== "about:blank")
-        .sort((a, b) => b.lastAccessed - a.lastAccessed).slice(0, 8)
+        .sort(byRecency).slice(0, 8)
         .forEach(t => res.push({ kind: "tab", tab: t, title: t.label, sub: tabUrl(t), icon: tabIcon(t), badge: "Tab" + wsLabel(tabWs(t)) }));
       palResults = res;
       palSel = 0;
@@ -1751,12 +1832,13 @@
 
     const seen = new Set();
     const tabs = gBrowser.tabs.filter(t => alive(t) && matches(`${t.label} ${tabUrl(t)}`, words))
-      .sort((a, b) => b.lastAccessed - a.lastAccessed).slice(0, 5);
+      .sort(byRecency).slice(0, 5);
     for (const t of tabs) {
       seen.add(tabUrl(t));
       res.push({ kind: "tab", tab: t, title: t.label, sub: tabUrl(t), icon: tabIcon(t), badge: (tabItemId(t) ? "Pinned" : "Tab") + wsLabel(tabWs(t)) });
     }
-    for (const { item, ws, profile } of walkItems()) {
+    const local = r => (r.ws ? r.ws.id === activeWs : r.profile.id === curProf().id) ? 0 : 1;
+    for (const { item, ws, profile } of [...walkItems()].sort((a, b) => local(a) - local(b))) {
       if (res.length > 9 || seen.has(item.url) || tabForItem(item.id)) continue;
       if (profile.id !== curProf().id && !ws) continue;
       if (!matches(`${item.customTitle || ""} ${item.title} ${item.url}`, words)) continue;
@@ -2804,6 +2886,7 @@
     setTool("select");
     renderBoard();
     boardView.focus({ preventScroll: true });
+    touchMru(boardKey());
     clearInterval(boardTimer);
     boardTimer = setInterval(tickBoard, 30e3);
     render();
@@ -2826,6 +2909,7 @@
     boardHideTimer = setTimeout(() => { if (!boardOpen) boardWrap.hidden = true; boardWrap.classList.remove("sl-closing"); }, 140);
     clearInterval(boardTimer);
     gBrowser.selectedBrowser.focus();
+    touchMru(gBrowser.selectedTab);
     render();
   }
 
@@ -2859,6 +2943,12 @@
     if (chromeField(e.target)) return true;
     try { return window.windowUtils.IMEStatus !== Ci.nsIDOMWindowUtils.IME_STATUS_DISABLED; } catch { return false; }
   }
+
+  /* Many pages focus a text field on their own as they load (search engines, chat apps). Such a field
+     only keeps Ctrl+arrows for itself once the user has clicked or typed in the page: until then the
+     shortcut switches workspaces. Reset when another tab is selected or a new page is loaded. */
+  let pageEngaged = false;
+  const resetEngaged = () => { pageEngaged = false; };
 
   function normMods(m) { return (m || "").split(/[,\s]+/).filter(Boolean).map(x => (x === "control" && !IS_MAC ? "accel" : x)).sort().join(","); }
 
@@ -2900,11 +2990,12 @@
       const wsMods = IS_MAC ? e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey
                             : e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
       if (wsMods && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !cycling) {
-        if (typingInField(e)) return;
+        if (chromeField(e.target) || (pageEngaged && typingInField(e))) return;
         e.preventDefault();
         e.stopPropagation();
         return stepWs(e.key === "ArrowLeft" ? -1 : 1);
       }
+      if (e.target === gBrowser.selectedBrowser && !["Control", "Shift", "Alt", "Meta"].includes(e.key)) pageEngaged = true;
       const editable = e.target !== gBrowser.selectedBrowser && chromeField(e.target);
       // Ctrl+1…9: workspace n (Ctrl on macOS too, like Arc).
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
@@ -2938,6 +3029,8 @@
       e.stopPropagation();
       arrows[e.key]();
     }, true);
+    window.addEventListener("mousedown", e => { if (e.target === gBrowser.selectedBrowser) pageEngaged = true; }, true);
+    gBrowser.tabContainer.addEventListener("TabSelect", resetEngaged);
     // Releasing Ctrl (⌘) or Shift confirms the choice, like Alt+Tab.
     window.addEventListener("keyup", e => {
       if (cycling && ["Control", "Meta", "Shift"].includes(e.key)) endCycle();
@@ -3064,9 +3157,10 @@
     tc.addEventListener("TabAttrModified", onTabAttr);
     tc.addEventListener("SSTabRestoring", () => { if (!little) applyVisibility(); render(); });
     gBrowser.addTabsProgressListener({
-      onLocationChange(browser, webProgress, request, location) {
+      onLocationChange(browser, webProgress, request, location, flags) {
         if (!webProgress.isTopLevel) return;
         const t = gBrowser.getTabForBrowser(browser);
+        if (t?.selected && !(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) resetEngaged();
         if (t) {
           const url = location?.spec || "";
           recordVisit(t, url);
@@ -3136,6 +3230,7 @@
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
+      favicon, plainIcon, cachedIcon,
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
       get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },

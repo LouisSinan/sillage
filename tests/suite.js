@@ -159,9 +159,45 @@
     await wait(800);
     gBrowser.selectedBrowser.focus();
     const imeOk = await until(() => window.windowUtils.IMEStatus !== 0, 5000);
-    ctrlArrow("ArrowRight");
-    ok(S.activeWs === ws1, "Ctrl+→ inside a text field is left to the field");
+    // Real key presses (through Firefox's own event path, as if typed).
+    const tip = Cc["@mozilla.org/text-input-processor;1"].createInstance(Ci.nsITextInputProcessor);
+    tip.beginInputTransactionForTests(window);
+    const realKey = (key, code, keyCode, ctrl = false) => {
+      const c = new KeyboardEvent("", { key: "Control", code: "ControlLeft", keyCode: 17 });
+      const k = new KeyboardEvent("", { key, code, keyCode });
+      if (ctrl) tip.keydown(c);
+      tip.keydown(k); tip.keyup(k);
+      if (ctrl) tip.keyup(c);
+    };
+    realKey("ArrowRight", "ArrowRight", 39, true);
+    ok(imeOk && S.activeWs === ws2, "Ctrl+→ in a field the page focused by itself still switches workspaces");
+    S.switchWs(ws1);
+    await until(() => sel() === field);
+    gBrowser.selectedBrowser.focus();
+    await until(() => window.windowUtils.IMEStatus !== 0, 3000);
+    realKey("a", "KeyA", 65);
+    realKey("ArrowRight", "ArrowRight", 39, true);
+    ok(S.activeWs === ws1, "Ctrl+→ inside a text field the user typed in is left to the field");
     gBrowser.removeTab(field, { animate: false });
+
+    // Trackpad swipes on the sidebar: one step per gesture, quick successive gestures all count.
+    S.saveWs({ id: null, name: "Third", icon: "🧪", hue: 30, profile: "default" });
+    S.closePalette();
+    const ws3t = S.activeWs;
+    S.switchWs(ws1);
+    const side = document.getElementById("sl-sidebar");
+    const swipe = deltas => deltas.forEach(dx => side.dispatchEvent(new WheelEvent("wheel", { deltaX: dx, deltaMode: 0, bubbles: true, cancelable: true })));
+    const flick = sign => swipe([3, 8, 18, 30, 42, 36, 28, 20, 13, 8, 5, 3, 2, 1].map(x => x * sign));
+    flick(1);
+    ok(S.activeWs === ws2, "a swipe moves one workspace, its momentum does not move further");
+    flick(1);
+    ok(S.activeWs === ws3t, "a second swipe right after the first moves again");
+    flick(-1);
+    ok(S.activeWs === ws2, "swiping back right away moves back");
+    swipe([10, 20, 40, 60, 90, 120, 90]);
+    ok(S.activeWs === ws3t, "a swipe that speeds up still moves only once");
+    await S.deleteWs(ws3t, { confirm: false });
+    S.switchWs(ws1);
     ok(!!xulKey("accel", "B"), "Ctrl+B toggles the sidebar too");
 
     // --- moving a tab to another workspace
@@ -184,6 +220,15 @@
     ok(S.palResults[0]?.kind === "cmd", "palette: matching command comes first");
     await S.query("");
     ok(S.palResults.every(r => r.kind === "tab"), "empty palette lists recent tabs");
+    // A tab of another workspace used more recently still comes after the current workspace's tabs.
+    S.selectTab(c);
+    S.switchWs(ws1);
+    await S.query("");
+    const firstOther = S.palResults.findIndex(r => !S.inView(r.tab));
+    ok(firstOther > 0 && S.palResults.slice(firstOther).every(r => !S.inView(r.tab)), "recent tabs: current workspace first, then the others");
+    await S.query("example");
+    const tabRes = S.palResults.filter(r => r.kind === "tab");
+    ok(S.inView(tabRes[0].tab) && tabRes.some(r => r.tab === c), "search: current workspace tabs come first", tabRes.map(r => S.tabWs(r.tab)).join(","));
     S.closePalette();
     ok(wrap.hidden, "palette closes");
     const xs = xulKey("accel", "T");
@@ -193,6 +238,28 @@
     S.closePalette();
     const native = document.getElementById("key_savePage");
     ok(native?.getAttribute("disabled") === "true", "native Ctrl+S (save page) disabled");
+
+    // --- favicons survive their tab; the spinner only shows when no icon is known
+    {
+      const svg = "data:image/svg+xml;base64," + btoa("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='red'/></svg>");
+      ok(S.plainIcon("moz-remote-image://?url=" + encodeURIComponent(svg)) === svg, "remote-image icons are unwrapped to their data URI");
+      ok(S.plainIcon("chrome://global/skin/icons/defaultFavicon.svg") === null, "only web or data icons are kept");
+      const it = S.newTab("https://example.com/?icon");
+      await until(() => url(it).includes("?icon"));
+      gBrowser.setIcon(it, svg);
+      ok(S.cachedIcon("https://example.com/other") === svg, "the icon a site showed is remembered for that site");
+      S.togglePin(it);
+      const itemId = S.tabItemId(it);
+      gBrowser.removeTab(it, { animate: false });
+      S.renderNow();
+      const img = document.querySelector(`#sl-pinned [data-item="${itemId}"] img.sl-fav`);
+      ok(img?.getAttribute("src") === svg, "an unloaded pinned item keeps its icon", img?.getAttribute("src")?.slice(0, 40));
+      const loading = S.favicon("https://example.com/", null, true);
+      ok(loading.localName === "img" && loading.classList.contains("loading"), "loading a known site shows its icon, dimmed");
+      ok(S.favicon("https://unknown.invalid/", null, true).classList.contains("sl-spin"), "loading an unknown site shows the spinner");
+      ok(!JSON.stringify(S.D).includes("data:image"), "icons are not stored in the synced data");
+      S.deleteItem(itemId);
+    }
 
     // --- tabs stay alive
     ok(Services.prefs.getBoolPref("browser.sessionstore.restore_on_demand") && Services.prefs.getIntPref("browser.tabs.remote.tabCacheSize") === 3,
@@ -380,6 +447,29 @@
     // --- board: sticky notes (7-day lifetime by default), free text and shapes
     S.openBoard();
     ok(S.boardOpen && !document.getElementById("sl-board-wrap").hidden, "board opens over the page");
+    {
+      const under = sel();
+      const ctrlShiftRight = () => keydown({ key: "ArrowRight", code: "ArrowRight", ctrlKey: true, shiftKey: true });
+      const letGo = () => window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control", bubbles: true }));
+      ctrlShiftRight();
+      const swCards = [...document.querySelectorAll("#sl-switcher .sl-sw-card")];
+      ok(swCards[0]?.classList.contains("board"), "recent tabs: the board counts as the current entry");
+      letGo();
+      ok(!S.boardOpen && sel() === under, "Ctrl+Shift+→ from the board goes back to the tab under it");
+      ctrlShiftRight(); letGo();
+      ok(S.boardOpen, "Ctrl+Shift+→ again brings the board back");
+      S.selectTab(under);
+      S.openBoard();
+      S.stepSidebar(1);
+      ok(!S.boardOpen, "Ctrl+Shift+↓ walks from the board to the next sidebar entry");
+      S.stepSidebar(-1);
+      ok(S.boardOpen, "Ctrl+Shift+↑ walks back onto the board");
+      S.runCommand("toggle-sidebar");
+      document.getElementById("sl-peek").dispatchEvent(new MouseEvent("mouseenter"));
+      const z = id => +getComputedStyle(document.getElementById(id)).zIndex || 0;
+      ok(z("sl-peek") > z("sl-board-wrap") && z("sl-sidebar") > z("sl-board-wrap"), "with the sidebar hidden, it can be peeked over the board");
+      S.runCommand("toggle-sidebar");
+    }
     const note = S.addNote(40, 40, "Buy milk");
     S.renderNow();
     const noteDom = () => document.querySelector(`[data-note="${note.id}"]`);
