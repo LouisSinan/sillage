@@ -261,6 +261,19 @@
       S.deleteItem(itemId);
     }
 
+    // --- a tab that is not loaded (restored lazily, or unloaded) can still be closed from the sidebar
+    {
+      const lazy = gBrowser.addTrustedTab("https://example.com/?lazy", { inBackground: true, createLazyBrowser: true, skipAnimation: true });
+      S.renderNow();
+      const row = [...document.querySelectorAll("#sl-today .sl-tab")].find(r => r.title.includes("?lazy"));
+      const x = row?.querySelector('[data-act="close"]');
+      InspectorUtils.addPseudoClassLock(row, ":hover");
+      ok(lazy.hasAttribute("pending") && !!x && getComputedStyle(x).display !== "none", "an inactive, unloaded tab shows its close button on hover");
+      InspectorUtils.removePseudoClassLock(row, ":hover");
+      x?.click();
+      ok(!lazy.isConnected, "its close button closes it");
+    }
+
     // --- tabs stay alive
     ok(Services.prefs.getBoolPref("browser.sessionstore.restore_on_demand") && Services.prefs.getIntPref("browser.tabs.remote.tabCacheSize") === 3,
       "tabs are restored when opened and a few recent ones stay rendered (memory)");

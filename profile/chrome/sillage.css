@@ -232,7 +232,6 @@
 .sl-rbtn { transition: background-color .1s ease, color .1s ease; }
 .sl-rbtn:hover { background: var(--sl-hover); color: var(--sl-fg); }
 .sl-row:hover .sl-rbtn, .sl-rbtn.on { display: grid; }
-.sl-row.unloaded .sl-rbtn[data-act="close"] { display: none; }
 .sl-rename { flex: 1; font: inherit; color: inherit; background: var(--sl-input); border: 0; outline: 1.5px solid var(--sl-accent); border-radius: 5px; padding: 3px 5px; min-width: 0; }
 
 .sl-fav { width: 16px; height: 16px; border-radius: 4px; flex: none; object-fit: contain; }

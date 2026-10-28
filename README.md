@@ -14,7 +14,8 @@ Firefox.
 
 ## Features
 
-- **Sidebar** with favorites, pinned tabs, folders and today tabs. Toggle it per window with
+- **Sidebar** with favorites, pinned tabs, folders and today tabs (hover any tab for its close button, or
+  middle-click it). Toggle it per window with
   <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it
   (over the board too).
 - **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd>,
