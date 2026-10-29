@@ -121,6 +121,30 @@
     S.renderNow();
     ok(ws().pinned.length === 1 && ws().pinned[0].type === "item", "nested folders cleaned up");
 
+    // --- double-click: back to the page the tab started on
+    const go = (t, u) => t.linkedBrowser.fixupAndLoadURIString(u, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+    const dbl = t => { S.renderNow(); document.querySelector(`#sl-sidebar .sl-tab[data-tab="${S.tabId(t)}"]`)?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); };
+    const pinUrl = S.D.workspaces[0].pinned[0].url;
+    go(b, "https://example.org/?drifted");
+    await until(() => url(b).includes("drifted"));
+    dbl(b);
+    ok(await until(() => url(b) === pinUrl), "double-clicking a pinned tab that moved away goes back to its pinned URL", url(b));
+    dbl(b);
+    const rin2 = document.querySelector("input.sl-rename");
+    ok(!!rin2, "double-clicking a pinned tab already on its URL renames it");
+    rin2?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const dt1 = S.newTab("https://example.com/?first");
+    await until(() => url(dt1).includes("first") && !dt1.hasAttribute("busy"));
+    go(dt1, "https://example.com/?second");
+    await until(() => url(dt1).includes("second") && !dt1.hasAttribute("busy"));
+    go(dt1, "https://example.com/?third");
+    await until(() => url(dt1).includes("third") && !dt1.hasAttribute("busy"));
+    dbl(dt1);
+    ok(await until(() => url(dt1).includes("first")), "double-clicking a today tab goes back to its first page", url(dt1));
+    ok(!S.backToStart(dt1), "nothing to do once there");
+    gBrowser.removeTab(dt1, { animate: false });
+    S.selectTab(b);
+
     // --- closing a pinned tab keeps the pinned item
     const bItem = S.tabItemId(b);
     gBrowser.removeTab(b, { animate: false });
@@ -570,6 +594,62 @@
     ok(/rgb\((\d+), (\d+)/.test(getComputedStyle(soonTime).color) && (([, r, g]) => +g > 40)(getComputedStyle(soonTime).color.match(/rgb\((\d+), (\d+)/)) && !document.querySelector(`[data-note="${soon.id}"]`).classList.contains("expired"),
       "less than a day left is not shown in red", getComputedStyle(soonTime).color);
     S.deleteBoardItem(soon.id);
+    // Undo / redo, copy / cut / paste / duplicate.
+    const bwrap = document.getElementById("sl-board-wrap");
+    const bkey = (key, opts = {}) => {
+      const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ctrlKey: true, ...opts });
+      view.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    view.focus();
+    view.dispatchEvent(new PointerEvent("pointerleave"));
+    const u1 = S.addNote(900, 100, "undo me");
+    ok(bkey("z") && !S.board().notes.some(n => n.id === u1.id), "Ctrl+Z undoes the last board change");
+    ok(bkey("y") && S.board().notes.some(n => n.id === u1.id && n.text === "undo me"), "Ctrl+Y redoes it");
+    bkey("z"); bkey("Z", { shiftKey: true });
+    ok(S.board().notes.some(n => n.id === u1.id), "Ctrl+Shift+Z redoes too");
+    const u1x = S.board().notes.find(n => n.id === u1.id);
+    S.deleteBoardItem(u1.id);
+    bkey("z");
+    ok(S.board().notes.some(n => n.id === u1.id), "a deleted note comes back with Ctrl+Z");
+    S.select(u1.id);
+    const nNotes = S.board().notes.length;
+    ok(bkey("c"), "Ctrl+C on the board is handled");
+    ok(S.readClipboard() === "undo me", "copying a note puts its text on the clipboard", S.readClipboard());
+    bkey("v");
+    const pasted = S.board().notes.at(-1);
+    ok(S.board().notes.length === nNotes + 1 && pasted.id !== u1.id && pasted.text === "undo me" && pasted.x === u1x.x + 24, "Ctrl+V pastes a copy, offset", JSON.stringify(pasted));
+    ok(S.selectedId === pasted.id, "the pasted copy is selected");
+    bkey("d");
+    ok(S.board().notes.length === nNotes + 2 && S.board().notes.at(-1).x === pasted.x + 24, "Ctrl+D duplicates the selection");
+    bkey("x");
+    ok(S.board().notes.length === nNotes + 1 && !S.board().notes.some(n => n.id === S.selectedId), "Ctrl+X cuts");
+    bkey("z"); bkey("z"); bkey("z");
+    ok(S.board().notes.length === nNotes, "undo walks back through paste, duplicate and cut", S.board().notes.length);
+    const shape = { kind: "rect", id: "shp", x1: 0, y1: 0, x2: 50, y2: 40, color: "ink", width: "medium" };
+    S.board().items.push(shape);
+    S.select("shp");
+    bkey("c");
+    bkey("v");
+    ok(S.board().items.filter(i => i.kind === "rect").length === 2, "shapes are copied and pasted too");
+    Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper).copyString("https://example.org/pasted");
+    bkey("v");
+    ok(S.board().items.some(i => i.kind === "link" && i.url === "https://example.org/pasted"), "pasting a URL makes a link block");
+    const vr0 = view.getBoundingClientRect();
+    view.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: vr0.left + 400, clientY: vr0.top + 300 }));
+    S.select(u1.id);
+    bkey("c");
+    bkey("v");
+    const atCursor = S.board().notes.at(-1), bv = S.board().view;
+    ok(Math.abs(atCursor.x - Math.round((400 - bv.x) / bv.z)) <= 1 && Math.abs(atCursor.y - Math.round((300 - bv.y) / bv.z)) <= 1, "with the mouse over the board, pasting puts the copy under it", JSON.stringify(atCursor));
+    S.deleteBoardItem(atCursor.id);
+    view.dispatchEvent(new PointerEvent("pointerleave"));
+    Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper).copyString("plain words");
+    bkey("v");
+    ok(S.board().items.some(i => i.kind === "text" && i.text === "plain words"), "pasting text makes a text item");
+    ok(!bwrap.querySelector('.sl-board-btn[title^="Undo"]').disabled, "undo button enabled when there is history");
+    for (const i of [...S.board().items].filter(i => i.kind !== "text" || i.text === "plain words")) S.deleteBoardItem(i.id);
+    S.deleteBoardItem(u1.id);
     // Dropping a tab on the board makes a link block; the sidebar is unchanged; clicking it goes to the tab.
     const linkTab = S.newTab("https://example.com/?boardlink", { background: true });
     await until(() => url(linkTab).includes("boardlink"));
@@ -654,6 +734,12 @@
     ok((S.hist()[pro.id] || []).some(e => e.u.includes("acme")), "visit recorded in the profile history");
     await S.query("acme");
     ok(S.palResults.some(r => r.kind === "history" || r.kind === "tab"), "palette uses the profile history");
+    // The container label sits above the address bar, not inside it.
+    await until(() => !document.getElementById("userContext-icons").hidden);
+    const ucIcons = document.getElementById("userContext-icons"), urlbarBox = document.getElementById("urlbar").getBoundingClientRect();
+    ok(ucIcons.parentNode.id === "nav-bar" && !ucIcons.hidden && ucIcons.getBoundingClientRect().bottom <= urlbarBox.top + 1
+      && document.getElementById("userContext-label").textContent === "Acme", "container label shown above the address bar", JSON.stringify(ucIcons.getBoundingClientRect()));
+    ok(!!getComputedStyle(ucIcons).getPropertyValue("--identity-icon-color").trim(), "the container label has its color");
     S.switchWs(ws1);
     await S.query("example.com/?acme");
     ok(!S.palResults.some(r => r.kind === "history" && r.url.includes("acme")), "other profile's history not shown");

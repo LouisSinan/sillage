@@ -56,6 +56,8 @@
     sound: '<path d="M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 0 1 0 6"/>',
     mute: '<path d="M4 10v4h4l5 4V6L8 10zM16 10l4 4M20 10l-4 4"/>',
     back: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>',
+    undo: '<path d="M9 13L4 8l5-5M4 8h10.5a5.5 5.5 0 0 1 0 11H10"/>',
+    redo: '<path d="M15 13l5-5-5-5M20 8H9.5a5.5 5.5 0 0 0 0 11H14"/>',
     cmd: '<path d="M5 7l5 5-5 5M12 17h7"/>',
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 3 2.5 14 0 17M12 3.5c-2.5 3-2.5 14 0 17"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
@@ -151,6 +153,7 @@
   }
 
   function save() {
+    try { boardCommit(); } catch (e) { log("board history " + e); }
     clearTimeout(shared.saveTimer);
     shared.saveTimer = setTimeout(() => shared.persist().catch(e => log("save " + e)), 300);
     try { SillageSync.dataSaved(D); } catch (e) { log("sync " + e); }
@@ -692,6 +695,25 @@
     if (r && t) t.linkedBrowser.fixupAndLoadURIString(r.item.url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
   }
 
+  /* Back to where the tab started: its pinned URL, or the first page of its history (skipping blank and
+     new tab pages). Returns false when it is already there. */
+  function backToStart(t) {
+    if (!alive(t)) return false;
+    const r = tabItem(t);
+    if (r) {
+      if (!r.item.url || tabUrl(t) === r.item.url) return false;
+      resetItem(r.item.id);
+      return true;
+    }
+    const sh = t.linkedBrowser.browsingContext?.sessionHistory;
+    if (!sh || sh.index <= 0) return false;
+    let i = 0;
+    while (i < sh.index && /^about:(blank|newtab|home)/.test(sh.getEntryAtIndex(i).URI.spec)) i++;
+    if (i >= sh.index) return false;
+    t.linkedBrowser.gotoIndex(i);
+    return true;
+  }
+
   function createFolder(wsId = activeWs, name = "New folder", parentId = null) {
     const f = { type: "folder", id: uid(), name, open: true, children: [] };
     const parent = parentId && findFolder(parentId)?.f;
@@ -719,7 +741,7 @@
 
   /* ---------- profiles & workspaces ---------- */
 
-  const CONTAINER_COLORS = ["blue", "turquoise", "green", "yellow", "orange", "red", "pink", "purple"];
+  const CONTAINER_COLORS = ["blue", "cyan", "green", "yellow", "orange", "red", "pink", "purple"];
 
   function createProfile(name) {
     const ci = ContextualIdentityService.create(name, "fingerprint", CONTAINER_COLORS[D.profiles.length % CONTAINER_COLORS.length]);
@@ -727,6 +749,18 @@
     D.profiles.push(p);
     save();
     return p;
+  }
+
+  /* Containers created by older versions used "turquoise", a color Firefox has since renamed to "cyan":
+     such containers had no color (grey label). */
+  function fixContainerColors() {
+    for (const p of D.profiles) {
+      if (!p.userContextId) continue;
+      try {
+        const ci = ContextualIdentityService.getPublicIdentityFromId(p.userContextId);
+        if (ci?.color === "turquoise") ContextualIdentityService.update(p.userContextId, ci.name, ci.icon, "cyan");
+      } catch (e) { log("container color " + e); }
+    }
   }
 
   function deleteProfile(id) {
@@ -898,6 +932,10 @@
     side = h("div", { id: "sl-sidebar" });
     browserBox.prepend(side);
     side.append(gNavToolbox, scroll, bottom, resizer);
+    // The container label (shown by Firefox at the end of the address bar) would take the room of the URL
+    // in the narrow sidebar: it moves to the free space of the toolbar's top row. Firefox still updates it.
+    const ucIcons = $("#userContext-icons");
+    if (ucIcons) $("#nav-bar").append(ucIcons);
 
     peekZone = h("div", { id: "sl-peek" });
     toastEl = h("div", { id: "sl-toast" });
@@ -1134,8 +1172,13 @@
       if (t) gBrowser.removeTab(t);
     });
 
+    // Double-click: back to the page the tab started on (its pinned URL, or the first page of a today tab).
+    // A row that is already there is renamed instead (pinned items).
     side.addEventListener("dblclick", e => {
+      if (e.target.closest("[data-act]")) return;
       const row = rowTarget(e);
+      const t = rowTab(row);
+      if (t && backToStart(t)) return;
       if (row?.dataset.item) return startRename(row, "item", row.dataset.item);
       const fh = e.target.closest(".sl-folder-head");
       if (fh) startRename(fh, "folder", fh.dataset.folderId);
@@ -1429,6 +1472,7 @@
       t && { label: "Duplicate", fn: () => newTab(tabUrl(t), { background: true }) },
       r && { label: "Rename…", fn: () => startRename(row, "item", r.item.id) },
       r && t && tabUrl(t) !== r.item.url && { label: "Back to pinned URL", fn: () => resetItem(r.item.id) },
+      !r && t?.linkedBrowser.canGoBack && { label: "Back to first page", fn: () => backToStart(t) },
       r && t && tabUrl(t) !== r.item.url && { label: "Replace pinned URL with current", fn: () => { r.item.url = tabUrl(t); save(); render(); } },
       "-",
       list === "today" && t && { label: "Pin", fn: () => togglePin(t) },
@@ -2402,15 +2446,18 @@
     const tools = h("div", { class: "sl-board-tools" }, TOOLS.map(([id, key, label, ic]) =>
       h("button", { class: "sl-board-tool", "data-tool": id, title: `${label} (${key})`, onclick: () => setTool(id) }, icon(ic))));
     const lifeBtn = h("button", { class: "sl-board-btn sl-board-life", title: "Lifetime of new notes", onclick: e => lifetimeMenu(e, null) });
+    const mod = IS_MAC ? "⌘" : "Ctrl+";
+    const undoBtn = h("button", { class: "sl-board-btn", title: `Undo (${mod}Z)`, onclick: () => boardUndo() }, icon("undo"));
+    const redoBtn = h("button", { class: "sl-board-btn", title: `Redo (${mod}${IS_MAC ? "⇧Z" : "Y"})`, onclick: () => boardUndo(true) }, icon("redo"));
     boardStyleBar = h("div", { id: "sl-board-style" });
     boardWrap = h("div", { id: "sl-board-wrap", hidden: true },
       h("div", { id: "sl-board-bar" },
         h("span", { class: "sl-orb-mini" }, h("img", { src: "chrome://sillage/content/logo-mark.svg", alt: "" })),
-        title, tools, h("span", { class: "sl-board-spacer" }), lifeBtn, zoom,
+        title, tools, h("span", { class: "sl-board-spacer" }), undoBtn, redoBtn, lifeBtn, zoom,
         h("button", { class: "sl-board-btn", title: "Close (Esc)", onclick: closeBoard }, icon("x"))),
       boardStyleBar,
       boardView);
-    Object.assign(boardWrap, { titleEl: title, zoomEl: zoom, toolsEl: tools, lifeEl: lifeBtn });
+    Object.assign(boardWrap, { titleEl: title, zoomEl: zoom, toolsEl: tools, lifeEl: lifeBtn, undoEl: undoBtn, redoEl: redoBtn });
     doc.body.append(boardWrap);
 
     const view = () => board().view;
@@ -2428,6 +2475,10 @@
       return { x: (cx - r.left - v.x) / v.z, y: (cy - r.top - v.y) / v.z };
     };
     const isBackground = t => t === boardView || t === boardWorld || t === boardSvg;
+    // Last pointer position over the board: pasted items land there.
+    let pointer = null;
+    boardView.addEventListener("pointermove", e => { pointer = { x: e.clientX, y: e.clientY }; });
+    boardView.addEventListener("pointerleave", () => { pointer = null; });
     // Pointer drags are captured by the view, so moves keep coming outside the element that started them.
     const track = (e, move, up) => {
       try { boardView.setPointerCapture(e.pointerId); } catch {}
@@ -2587,6 +2638,16 @@
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId) { e.preventDefault(); deleteBoardItem(selectedId); return; }
+      // Ctrl (⌘) + Z / Shift+Z / Y / C / X / V / D. e.key, not e.code: the letters move with the layout (AZERTY).
+      if (accel(e) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        const act = k === "z" ? (e.shiftKey ? () => boardUndo(true) : () => boardUndo())
+          : e.shiftKey ? null
+          : { y: () => boardUndo(true), c: () => boardCopy(), x: () => boardCopy(true), d: () => boardDuplicate(),
+              v: () => boardPaste(pointer && toWorld(pointer.x, pointer.y)) }[k];
+        if (act) { e.preventDefault(); e.stopPropagation(); act(); }
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = TOOLS.find(([, key]) => key === e.key.toUpperCase());
       if (t) { e.preventDefault(); setTool(t[0]); }
@@ -2646,6 +2707,117 @@
     save();
     renderBoard();
     render();
+  }
+
+  /* Undo / redo: snapshots of the board's notes and items (not of the view), taken whenever data is saved.
+     One history per workspace, kept for this window's session. */
+  const boardHist = new Map();
+  const boardSnap = b => JSON.stringify({ notes: b.notes, items: b.items }, (k, v) => (k.startsWith("_") ? undefined : v));
+  function boardCommit() {
+    const ws = curWs();
+    if (!ws?.board) return;
+    const snap = boardSnap(board(ws)), hst = boardHist.get(ws.id);
+    if (!hst) boardHist.set(ws.id, { last: snap, undo: [], redo: [] });
+    else if (hst.last !== snap) {
+      hst.undo.push(hst.last);
+      if (hst.undo.length > 100) hst.undo.shift();
+      hst.redo = [];
+      hst.last = snap;
+    }
+    updateUndoButtons();
+  }
+  /* Changes that did not come from this board (sync, another window) are not undone as a step. */
+  function boardRebase() {
+    for (const [id, hst] of boardHist) { const w = wsById(id); if (w?.board) hst.last = boardSnap(w.board); else boardHist.delete(id); }
+    updateUndoButtons();
+  }
+  function updateUndoButtons() {
+    if (!boardWrap) return;
+    const hst = boardHist.get(curWs()?.id);
+    boardWrap.undoEl.disabled = !hst?.undo.length;
+    boardWrap.redoEl.disabled = !hst?.redo.length;
+  }
+  function boardUndo(redo = false) {
+    boardCommit(); // text typed since the last save
+    const ws = curWs(), hst = boardHist.get(ws.id);
+    const from = redo ? hst?.redo : hst?.undo, to = redo ? hst?.undo : hst?.redo;
+    if (!from?.length) return false;
+    to.push(hst.last);
+    hst.last = from.pop();
+    const st = JSON.parse(hst.last), b = board(ws);
+    b.notes = st.notes;
+    b.items = st.items;
+    save();
+    renderBoard();
+    render();
+    return true;
+  }
+
+  /* Copy / cut / paste / duplicate. The copied item stays in memory; its text (or URL) also goes to the
+     system clipboard. Pasting brings back the item while the clipboard still holds what was copied;
+     otherwise the clipboard's text becomes a text item, or a link block for a URL. */
+  let boardClip = null;
+  const plain = o => JSON.parse(JSON.stringify(o, (k, v) => (k.startsWith("_") ? undefined : v)));
+  function readClipboard() {
+    try {
+      const tr = Cc["@mozilla.org/widget/transferable;1"].createInstance(Ci.nsITransferable);
+      tr.init(null);
+      tr.addDataFlavor("text/plain");
+      Services.clipboard.getData(tr, Ci.nsIClipboard.kGlobalClipboard);
+      const out = {};
+      tr.getTransferData("text/plain", out);
+      return out.value?.QueryInterface(Ci.nsISupportsString).data || "";
+    } catch { return ""; }
+  }
+  function boardCopy(cut = false) {
+    const sel = selectedObject();
+    if (!sel) return false;
+    const text = sel.kind === "link" ? sel.obj.url : sel.obj.text || "";
+    if (text) Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper).copyString(text);
+    boardClip = { kind: sel.kind, obj: plain(sel.obj), text: text || readClipboard() };
+    if (cut) deleteBoardItem(sel.obj.id);
+    return true;
+  }
+  function boardPaste(at = null) {
+    const text = readClipboard();
+    if (boardClip && text === boardClip.text) return placeCopy(boardClip, at);
+    const s = text.trim();
+    if (!s) return null;
+    const v = board().view, r = boardView.getBoundingClientRect();
+    const p = at || { x: (r.width / 2 - v.x) / v.z - 60, y: (r.height / 2 - v.y) / v.z - 20 };
+    if (/^(https?|file):\/\/\S+$/.test(s)) return addLink(p.x, p.y, { url: s });
+    const it = addText(p.x, p.y, s);
+    if (boardOpen) select(it.id);
+    return it;
+  }
+  function boardDuplicate() {
+    const sel = selectedObject();
+    return sel ? placeCopy({ kind: sel.kind, obj: plain(sel.obj) }) : null;
+  }
+  /* Adds a copy of clip.obj, with its top-left corner at `at` (world coordinates), or offset from the
+     original; repeated pastes cascade. */
+  function placeCopy(clip, at = null) {
+    const o = plain(clip.obj);
+    o.id = uid();
+    const ox = o.x ?? Math.min(o.x1, o.x2), oy = o.y ?? Math.min(o.y1, o.y2);
+    const dx = at ? at.x - ox : 24, dy = at ? at.y - oy : 24;
+    for (const k of ["x", "x1", "x2"]) if (k in o) o[k] += dx;
+    for (const k of ["y", "y1", "y2"]) if (k in o) o[k] += dy;
+    normalize(o);
+    if (!at) clip.obj = plain(o);
+    const b = board();
+    if (clip.kind === "note") {
+      const now = Date.now();
+      o.created = now;
+      o.expires = o.lifetime ? now + o.lifetime : null;
+      delete o.snoozed;
+      b.notes.push(o);
+    } else b.items.push(o);
+    save();
+    renderBoard();
+    if (boardOpen) select(o.id);
+    render();
+    return o;
   }
 
   /* Style bar: colors, fill, stroke width, font and size of the selection (or of the next item drawn). */
@@ -2899,6 +3071,8 @@
   function renderBoard() {
     if (!boardOpen) return;
     const ws = curWs(), b = board(ws);
+    if (!boardHist.has(ws.id)) boardCommit();
+    else updateUndoButtons();
     positionBoard();
     boardWrap.titleEl.textContent = `${ws.icon}  ${ws.name}`;
     boardWrap.lifeEl.textContent = `Notes: ${(LIFETIMES.find(([ms]) => ms === noteLifetime())?.[1] || span(noteLifetime())).toLowerCase()}`;
@@ -3147,6 +3321,7 @@
         const want = tabProfile(t)?.userContextId;
         if (alive(t) && want != null && (t.userContextId || 0) !== want && !t.hasAttribute("pending")) rehome(t, want);
       }
+      boardRebase();
       applyVisibility();
       render();
     },
@@ -3167,6 +3342,7 @@
     });
     SillageSync.init(shared).then(() => save()).catch(e => log("sync init " + e));
     activeWs = wsById(D.lastWs) ? D.lastWs : D.workspaces[0].id;
+    fixContainerColors();
     sidebarVisible = D.settings.sidebarVisible;
 
     buildUi();
@@ -3297,11 +3473,11 @@
       renderNow, newTab, openItem, moveTab, moveItem, moveFolder, togglePin, toggleFavorite, deleteItem, createFolder,
       openGlance, closeGlance, glance: () => glance, get renderCount() { return renderCount; },
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
-      archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile,
+      archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile, fixContainerColors, backToStart, tabId,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
       favicon, plainIcon, cachedIcon,
       get sidebarVisible() { return sidebarVisible; },
-      openBoard, closeBoard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
+      openBoard, closeBoard, boardUndo, boardCopy, boardPaste, boardDuplicate, readClipboard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
       get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },
       openLittle, moveToMain, enterLittle, defaultLittleProfile, sync: SillageSync, isBlank, moveWorkspace, absorbSeparateProfiles, dynamicCommands,
     },

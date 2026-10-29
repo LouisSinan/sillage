@@ -31,6 +31,8 @@ that a Firefox update can be checked quickly. Firefox's source for a given file 
 | Chrome `keydown` / `mousedown` listeners see events aimed at a remote page with the `<browser>` as target | `pageEngaged` (has the user interacted with the page) |
 | `TabAttrModified` `detail.changed` | Deciding when the sidebar needs a render |
 | `windowGlobal.drawSnapshot` | Switcher thumbnails |
+| `browsingContext.sessionHistory` (`index`, `getEntryAtIndex`), `browser.gotoIndex`, `canGoBack` | Double-click: back to a tab's first page |
+| `#userContext-icons` (`#userContext-label`, `#userContext-indicator`, `identity-color-*` classes from `usercontext.css`) | Container label, moved above the address bar |
 | `gBrowser.getIcon` (a data URI), tab `image` attribute (`moz-remote-image://?url=<data URI>`), `page-icon:` | Favicons and their cache |
 | `#navigator-toolbox`, `#TabsToolbar`, `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` | Layout |
 
@@ -38,7 +40,8 @@ that a Firefox update can be checked quickly. Firefox's source for a given file 
 
 | Dependency | Used for |
 |---|---|
-| `ContextualIdentityService` (`moz-src:///toolkit/components/contextualidentity/…`) | Profiles as containers |
+| `ContextualIdentityService` (`moz-src:///toolkit/components/contextualidentity/…`; `create`, `update`, `getPublicIdentityFromId`, colors of `CONTAINER_COLORS`) | Profiles as containers |
+| `Services.clipboard.getData` with an `nsITransferable`, `nsIClipboardHelper.copyString` | Board copy / paste, copying URLs |
 | `resource://services-sync/` (`SyncEngine`, `Store`, `Tracker`, `CryptoWrapper`, `Weave.Service`) | Sync engine |
 | `MigrationUtils.showMigrationWizard` | Import from other browsers |
 | `IOUtils`, `PathUtils`, `Sqlite.sys.mjs` | Files; merging separate profiles left over from older versions |

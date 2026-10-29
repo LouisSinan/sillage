@@ -17,13 +17,15 @@ Firefox.
 - **Sidebar** with favorites, pinned tabs, folders and today tabs (hover any tab for its close button, or
   middle-click it). Toggle it per window with
   <kbd>Ctrl</kbd>+<kbd>S</kbd> or <kbd>Ctrl</kbd>+<kbd>B</kbd>; when hidden, hover the left edge of the window to peek at it
-  (over the board too).
+  (over the board too). Double-click a tab to go back to the page it started on: a pinned tab returns to its
+  pinned URL, a today tab to the first page of its history (a pinned tab already there is renamed instead).
 - **Workspaces** with their own color, pinned tabs and open tabs. Switch with <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>→</kbd>,
   <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>, a horizontal swipe on the sidebar (one workspace per swipe, swipe again
   right away to keep going), or the palette.
 - **Profiles.** Each workspace is assigned a profile backed by a Firefox container: separate cookies and
   sessions (for example two Google accounts side by side), plus separate palette history and favorites.
-  All profiles share one window. Extensions are shared too, but each workspace shows its own pinned extension
+  All profiles share one window. The current profile's container name shows as a colored label in the top row
+  of the toolbar, above the address bar. Extensions are shared too, but each workspace shows its own pinned extension
   icons: right-click an icon → *Hide in …*; right-click the extensions button → *Show hidden extensions*, or use
   the palette.
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd>): URLs, web search with
@@ -40,6 +42,10 @@ Firefox.
   pages: when a workspace has nothing open, its board is shown instead. Tools: <kbd>V</kbd> select,
   <kbd>N</kbd> note, <kbd>T</kbd> text, <kbd>L</kbd> line, <kbd>A</kbd> arrow, <kbd>R</kbd> rectangle,
   <kbd>O</kbd> ellipse; <kbd>Shift</kbd> constrains, <kbd>Del</kbd> deletes, <kbd>Space</kbd> or the middle button pans.
+  <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Y</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes
+  (also buttons in the board's bar); <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> copy, cut and paste
+  the selection (pasted under the mouse), <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicates it. Pasting text from elsewhere
+  adds a text item, or a link block for a URL.
   Drag a tab, a pinned item or a link onto the board to add a small link block: clicking it goes to the tab
   (or opens the page), and the sidebar is left unchanged.
 - **Glance**: a link that would open a new tab (or any link with <kbd>Shift</kbd>+click) shows in a card over the

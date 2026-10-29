@@ -29,6 +29,12 @@ Each section names the functions to start from in `profile/chrome/sillage.uc.js`
 - Drag and drop (`wireDnd`, `computeDrop`, `moveTab`, `moveItem`, `moveFolder`, `moveWorkspace`): one
   `dragging` descriptor, drop targets computed from the pointer position, marks as CSS classes.
 - Renaming (`startRename`): an input replaces the title; Enter or a click elsewhere commits, Escape cancels.
+- Double-click on a row: `backToStart()` returns a pinned tab to its pinned URL (`resetItem`) or a today tab
+  to the first entry of its session history that is not a blank / new tab page (`browser.gotoIndex`). When
+  there is nothing to go back to, a pinned row is renamed instead.
+- The container label (`#userContext-icons`, updated by Firefox) is moved from the address bar into `#nav-bar`
+  and placed by CSS in the free space of the top row. `fixContainerColors()` renames the color "turquoise"
+  (used by older versions, since renamed "cyan" by Firefox and left without a color) at startup.
 - Hidden sidebar: hovering the left edge shows it temporarily (*peek*, `wirePeek`, `endPeek`). The peek zone
   and the peeked sidebar sit above the board and Glance cards (z-index).
 - Horizontal swipe on the sidebar (`wheel` listener in the sidebar events): one `stepWs` per gesture. Wheel
@@ -95,6 +101,14 @@ An infinite canvas per workspace (`buildBoard`, `renderBoard`, `refreshBoard`), 
 - Tools and the floating style bar: `setTool`, `select`, `drawStyleBar`. The last chosen style becomes the
   default for new items (`boardStyle`).
 - `refreshBoard()` skips rebuilding while text is being edited or something is dragged.
+- Undo / redo (`boardCommit`, `boardUndo`): `save()` snapshots the current workspace's notes and items (not
+  the view) and pushes the previous snapshot when they changed; one history per workspace, in memory, 100
+  steps. Changes from sync reset the baseline (`boardRebase`) so they are not undone as a step. Text typed in
+  a note or text item is captured at its debounced save; inside a text field, Ctrl+Z is the field's own undo.
+- Copy / paste (`boardCopy`, `boardPaste`, `boardDuplicate`, `placeCopy`): the copied object is kept in
+  `boardClip` and its text or URL goes to the system clipboard. Pasting restores the object while the
+  clipboard still holds that text; otherwise the clipboard text becomes a text item or a link block. Keys are
+  matched on `e.key`, so they follow the keyboard layout.
 
 ## Little Sillage
 

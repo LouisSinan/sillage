@@ -507,6 +507,8 @@
   background: hsl(var(--sl-h) 20% 50% / .12); color: inherit; font: inherit; appearance: none;
 }
 .sl-board-btn:hover { background: hsl(var(--sl-h) 20% 50% / .22); }
+.sl-board-btn:has(> .sl-icon:only-child) { padding: 0 7px; }
+.sl-board-btn:disabled { opacity: .35; background: hsl(var(--sl-h) 20% 50% / .08); }
 #sl-board-view {
   flex: 1; position: relative; overflow: hidden; cursor: grab;
   background-image: radial-gradient(hsl(var(--sl-h) 15% 50% / .28) 1px, transparent 1.2px);
@@ -682,4 +684,26 @@
 .sl-glance-btn .sl-icon { width: 15px; height: 15px; }
 @media (prefers-reduced-motion: reduce) {
   :root[sl-glance] #tabbrowser-tabpanels[splitview] > [sl-glance-card], .sl-glance-shade, .sl-glance-bar { animation: none; }
+}
+
+/* Container label: moved from the address bar to the free space of the toolbar's top row (next to the
+   reload button), as a small pill in the container's color. */
+:root.sillage #nav-bar > #userContext-icons {
+  --sl-uc: var(--identity-icon-color, var(--sl-fg-dim));
+  position: absolute; top: 0; left: 124px; height: 32px; max-width: calc(100% - 124px - 44px);
+  display: flex; align-items: center; margin: 0; padding: 0; background: none; pointer-events: none;
+}
+:root.sillage #nav-bar[nonemptyoverflow] > #userContext-icons { max-width: calc(100% - 124px - 78px); }
+:root.sillage #nav-bar > #userContext-icons[hidden] { display: none; }
+:root.sillage #nav-bar > #userContext-icons > #userContext-label {
+  order: 2; margin: 0; padding: 0 9px 0 3px; height: 20px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 0 10px 10px 0; font-size: 11.5px; font-weight: 600; line-height: 20px;
+  color: color-mix(in srgb, var(--sl-uc) 70%, var(--sl-fg)); background: color-mix(in srgb, var(--sl-uc) 15%, transparent);
+}
+:root.sillage #nav-bar > #userContext-icons > #userContext-indicator {
+  order: 1; flex: none; width: 12px; height: 12px; margin: 0; padding: 4px 2px 4px 8px; box-sizing: content-box;
+  border-radius: 10px 0 0 10px; background-origin: content-box; background-clip: border-box;
+  fill: var(--sl-uc); -moz-context-properties: fill;
+  background-color: color-mix(in srgb, var(--sl-uc) 15%, transparent);
 }
