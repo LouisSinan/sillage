@@ -918,6 +918,17 @@
       const g3 = S.glance();
       S.selectTab(page);
       ok(await until(() => !S.glance() && !g3.tab.isConnected, 1000) && sel() === page, "selecting another tab dismisses the card");
+      // The page under the card is now a background tab: not left rendering, shown again when chosen.
+      ok(await until(() => !g2.tab.linkedBrowser.docShellIsActive, 1000), "the page under the card goes to the background");
+      S.selectTab(g2.tab);
+      ok(await until(() => g2.tab.linkedBrowser.docShellIsActive && g2.tab.linkedBrowser.renderLayers, 2000), "and is shown again when selected");
+      // Ctrl+O keeps the card as a tab.
+      window.openLinkIn("https://example.org/?ctrlo", "tab", { openerBrowser: g2.tab.linkedBrowser, inBackground: false, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      await until(() => S.glance());
+      const g4 = S.glance();
+      xulKey("accel", "O").doCommand();
+      ok(!S.glance() && sel() === g4.tab && S.todayTabs(S.activeWs).includes(g4.tab), "Ctrl+O opens the card as a tab");
+      S.selectTab(page);
       // Background tabs (Ctrl+click) are left alone.
       const n0 = gBrowser.tabs.length;
       window.openLinkIn("https://example.org/?bg", "tab", { openerBrowser: page.linkedBrowser, inBackground: true, triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });

@@ -2291,6 +2291,7 @@
       glanceBox.hidden = true;
     };
     unstyle();
+    setTimeout(() => sendToBackground(parent, tab), 0);
     if (closing) return render();
     try { if (split.isConnected) split.unsplitTabs(); } catch (e) { log("unsplit " + e); }
     if (keep && alive(tab)) { selectTab(tab); touchMru(tab); }
@@ -2299,6 +2300,16 @@
       if (alive(tab)) gBrowser.removeTab(tab, { animate: false, skipPermitUnload: false });
     }
     render();
+  }
+
+  /* Firefox's tab switcher keeps the pages of a split view rendering when another tab is chosen. Once the
+     split view is gone nothing turns them off, and switching back later finds a page it believes is already
+     painted: the tab shows nothing. Pages left in the background go back to the normal background state. */
+  function sendToBackground(...tabs) {
+    for (const t of tabs) {
+      if (!alive(t) || t.selected || t.splitview || !t.linkedBrowser.docShellIsActive) continue;
+      t.linkedBrowser.docShellIsActive = false;
+    }
   }
 
   let glanceBox, glanceTitle;
@@ -3167,6 +3178,8 @@
     { mod: "accel", key: "L", fn: () => openPalette("current"), reserved: true },
     { mod: "accel", key: "D", fn: () => togglePin(gBrowser.selectedTab) },
     { mod: "accel,shift", key: "D", fn: () => toggleFavorite(gBrowser.selectedTab) },
+    // Keeps the Glance card as a tab; without a card, Firefox's Open File as before.
+    { mod: "accel", key: "O", fn: () => (glance ? closeGlance({ keep: true }) : $("#Browser\\:OpenFile")?.doCommand()) },
   ];
   // Handled by a direct listener (see installShortcuts), but their native equivalents must be disabled.
   const STOLEN = [

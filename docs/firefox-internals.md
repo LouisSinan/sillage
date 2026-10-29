@@ -27,6 +27,8 @@ that a Firefox update can be checked quickly. Firefox's source for a given file 
 | `window.openLinkIn` | Shift+click → Glance |
 | `window.browserDOMWindow.openURI` with `OPEN_EXTERNAL` | Little Sillage |
 | `Browser:Stop` command | Escape closes a Glance card |
+| `Browser:OpenFile` command | Ctrl+O without a Glance card |
+| `browser.docShellIsActive` (the tab switcher skips split view pages, `AsyncTabSwitcher.shouldDeactivateDocShell`) | Glance: the page left behind goes to the background |
 | `gBrowser.addTabsProgressListener` (`onLocationChange`, `LOCATION_CHANGE_SAME_DOCUMENT` flag) | Visits, placeholders, container checks, resetting `pageEngaged` |
 | Chrome `keydown` / `mousedown` listeners see events aimed at a remote page with the `<browser>` as target | `pageEngaged` (has the user interacted with the page) |
 | `TabAttrModified` `detail.changed` | Deciding when the sidebar needs a render |

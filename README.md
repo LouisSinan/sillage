@@ -49,8 +49,8 @@ Firefox.
   Drag a tab, a pinned item or a link onto the board to add a small link block: clicking it goes to the tab
   (or opens the page), and the sidebar is left unchanged.
 - **Glance**: a link that would open a new tab (or any link with <kbd>Shift</kbd>+click) shows in a card over the
-  current page instead, like Arc's Peek. Click beside it or press <kbd>Esc</kbd> to close it, or *Open as tab* to keep
-  it. <kbd>Ctrl</kbd>+click still opens a background tab. Can be turned off from the palette.
+  current page instead, like Arc's Peek. Click beside it or press <kbd>Esc</kbd> to close it, or *Open as tab* (<kbd>Ctrl</kbd>+<kbd>O</kbd>) to
+  keep it. <kbd>Ctrl</kbd>+click still opens a background tab. Can be turned off from the palette.
 - **Little Sillage**: links opened from other apps land in a small separate window instead of a workspace;
   "Open in…" moves the tab into the workspace of your choice. With several profiles, the window first asks
   which profile to open the link with (<kbd>1</kbd>…<kbd>9</kbd>, arrows and <kbd>Enter</kbd>; the last choice
@@ -118,6 +118,7 @@ workspace is <kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>←</kbd> / <kbd>→</kbd>, as i
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | Pin / unpin the current tab |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Add / remove the current tab from favorites |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Copy the current URL |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | Open the Glance card as a tab (without a card: Firefox's Open File) |
 
 Other Firefox shortcuts (<kbd>Ctrl</kbd>+<kbd>W</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>F</kbd>…) work as usual.
 Closing a tab returns to the previously active tab of the workspace.

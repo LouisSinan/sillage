@@ -83,7 +83,11 @@ A link that would open a foreground tab shows in a card over the current page.
   `positionGlance()` computes the card's place instead of measuring it, because the card is animated.
 - `closeGlance({ keep })` undoes the split view and either keeps the tab (selected, listed in the sidebar) or
   closes it. Selecting another tab closes the card; this is deferred by one tick because Firefox also moves the
-  selection away from a tab it is about to close.
+  selection away from a tab it is about to close. Ctrl+O (⌘O) keeps the card as a tab.
+- Firefox's tab switcher does not turn off the pages of a split view when another tab is chosen, and nothing
+  does once the split view is gone: switching back later found a page it believed was painted, and the tab
+  stayed empty. `sendToBackground()` sets `docShellIsActive = false` on the card or the page left in the
+  background after `closeGlance()`.
 - The card's tab is left out of the sidebar and of the recent tabs list while it is a card.
 
 ## Board
