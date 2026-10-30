@@ -44,6 +44,11 @@ Each section names the functions to start from in `profile/chrome/sillage.uc.js`
 - Icons (`favicon`): the tab's icon, then the site's cached icon (`rememberIcon` on `TabAttrModified`
   `image`, `cachedIcon`), then `page-icon:`, then a colored letter; each failing source falls through to the
   next. A loading tab keeps its known icon, dimmed; the spinner only shows when no icon is known yet.
+- Loading: when the selected tab stays `busy` for 250 ms, `updateLoading()` shows `#sl-loading`, a spinner centred over the
+  page area (the content can be black while a page starts). Not shown on the board, which has its own message.
+- Empty workspace: the board shows a night sky (`buildHello`, `.sl-hello`, styled after the khaalipso.cloud site) with a comet and
+  kind words picked by `showHello()` from `HELLO` (by time of day) and `HELLO_SUB` (random) each time the screen appears.
+  Only finite animations, and none under `prefers-reduced-motion`. Adding a note or item removes it.
 - Workspace color: the hue is a registered CSS property (`--sl-h`) so it animates; `setHue()` picks the
   shortest way around the color wheel.
 

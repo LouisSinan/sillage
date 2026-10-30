@@ -1012,8 +1012,29 @@
     laterTimer = setTimeout(() => { laterTimer = 0; render(); }, Math.max(0, lastRender + 250 - performance.now()));
   }
   const SHOWN_ATTRS = new Set(["label", "image", "busy", "soundplaying", "muted", "pending", "activemedia-blocked", "crashed", "pictureinpicture"]);
+  /* A loading page can leave the content area black for a moment: a small spinner says it is not a bug.
+     Delayed so quick loads never flash it; the board (the "nothing open" screen) has its own message. */
+  let loadEl, loadTimer;
+  function updateLoading() {
+    clearTimeout(loadTimer);
+    const t = gBrowser.selectedTab;
+    const want = () => alive(t) && t.selected && t.hasAttribute("busy") && !boardOpen && !little;
+    if (!want()) { loadEl?.setAttribute("hidden", ""); return; }
+    loadTimer = setTimeout(() => {
+      if (!want()) return;
+      if (!loadEl) {
+        loadEl = h("div", { id: "sl-loading", hidden: true }, h("span", { class: "sl-spin" }));
+        doc.body.append(loadEl);
+      }
+      const box = $("#tabbrowser-tabbox").getBoundingClientRect();
+      for (const [k, v] of Object.entries({ x: box.left, y: box.top, w: box.width, h: box.height })) loadEl.style.setProperty(`--ld-${k}`, v + "px");
+      loadEl.removeAttribute("hidden");
+    }, 250);
+  }
+
   function onTabAttr(e) {
     const t = e.target;
+    if (t.selected && e.detail?.changed?.includes("busy")) updateLoading();
     if (e.detail?.changed?.includes("image")) rememberIcon(t);
     if (!e.detail?.changed?.some(a => SHOWN_ATTRS.has(a))) return;
     if (little || inView(t) || t === glance?.tab) renderLater();
@@ -2452,6 +2473,8 @@
     boardSvg = svgEl("svg", { id: "sl-board-svg", width: "1", height: "1" });
     boardWorld = h("div", { id: "sl-board-world" });
     boardView = h("div", { id: "sl-board-view", tabindex: "-1" }, boardWorld);
+    boardView.hello = buildHello();
+    boardView.append(boardView.hello);
     const title = h("span", { class: "sl-board-title" });
     const zoom = h("span", { class: "sl-board-zoom" });
     const tools = h("div", { class: "sl-board-tools" }, TOOLS.map(([id, key, label, ic]) =>
@@ -3096,6 +3119,7 @@
     if (focused) boardWorld.querySelector(`[data-note="${focused}"] textarea`)?.focus();
     boardWrap.apply();
     boardWrap.classList.toggle("empty", !b.notes.length && !b.items.length);
+    showHello(isBlank(gBrowser.selectedTab) && !b.notes.length && !b.items.length);
     drawStyleBar();
   }
 
@@ -3108,6 +3132,58 @@
       return;
     }
     renderBoard();
+  }
+
+  /* The "nothing open" screen: a night sky with a comet, and a few kind words that change with the time of day. */
+  const HELLO = {
+    morning: ["Good morning.", "A fresh start.", "Morning light.", "Coffee first?"],
+    afternoon: ["Good afternoon.", "Take your time.", "Halfway there.", "Still going strong."],
+    evening: ["Good evening.", "The day is winding down.", "Golden hour.", "You made it this far."],
+    night: ["Still up?", "The night is quiet.", "Late night, calm mind.", "The stars are out."],
+  };
+  const HELLO_SUB = [
+    "Nothing open, and that is fine.", "A blank page is a good place to start.", "No rush. Go where the wind takes you.",
+    "Breathe. The web can wait.", "Follow the wake, one tab at a time.", "Everything is where you left it.",
+  ];
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+
+  function buildHello() {
+    const NS = SVG;
+    const star = (x, y, r, d) => { const c = doc.createElementNS(NS, "circle"); c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r); c.style.animationDelay = d + "s"; return c; };
+    const sky = doc.createElementNS(NS, "svg");
+    sky.setAttribute("viewBox", "0 0 800 500"); sky.setAttribute("preserveAspectRatio", "xMidYMid slice"); sky.setAttribute("class", "sl-hello-sky");
+    sky.innerHTML = `<defs>
+      <linearGradient id="slHelloTail" gradientUnits="userSpaceOnUse" x1="610" y1="150" x2="40" y2="330">
+        <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".3" stop-color="#d9c3ee" stop-opacity=".5"/><stop offset="1" stop-color="#b077d0" stop-opacity="0"/></linearGradient>
+      <filter id="slHelloGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>
+      <g class="sl-hello-comet">
+        <path d="M610 150 C 420 190 220 260 40 340 C 230 300 430 230 610 150Z" fill="url(#slHelloTail)" filter="url(#slHelloGlow)"/>
+        <path d="M610 150 C 430 195 230 265 60 332" stroke="url(#slHelloTail)" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+        <circle cx="610" cy="150" r="14" fill="#b077d0" opacity=".55" filter="url(#slHelloGlow)"/>
+        <circle cx="610" cy="150" r="4.5" fill="#fff"/></g>`;
+    const stars = [[90, 70, 1.1], [180, 190, 0.8], [300, 60, 1.3], [420, 110, 0.9], [520, 40, 1], [700, 90, 1.2], [740, 230, 0.8], [660, 330, 1],
+      [120, 410, 1], [330, 430, 0.8], [560, 450, 1.2], [760, 420, 0.9], [230, 330, 0.7], [470, 300, 0.7]];
+    const g = doc.createElementNS(NS, "g"); g.setAttribute("class", "sl-hello-stars");
+    stars.forEach(([x, y, r], i) => g.append(star(x, y, r, (i % 5) * 0.4)));
+    sky.append(g);
+    const hello = h("div", { class: "sl-hello" }, sky,
+      h("div", { class: "sl-hello-text" },
+        h("div", { class: "sl-hello-title" }), h("div", { class: "sl-hello-sub" }),
+        h("div", { class: "sl-hello-hint" }, h("kbd", { text: IS_MAC ? "⌘ T" : "Ctrl T" }), h("span", { text: "to go somewhere" }))));
+    return hello;
+  }
+
+  /* New words each time the screen appears (not on every render, so they do not flicker). */
+  function showHello(on) {
+    const wasOn = boardWrap.classList.contains("hello");
+    boardWrap.classList.toggle("hello", on);
+    if (!on || wasOn) return;
+    const hr = new Date().getHours();
+    const part = hr >= 5 && hr < 12 ? "morning" : hr < 17 && hr >= 12 ? "afternoon" : hr >= 17 && hr < 22 ? "evening" : "night";
+    const el = boardView.hello;
+    el.querySelector(".sl-hello-title").textContent = pick(HELLO[part]);
+    el.querySelector(".sl-hello-sub").textContent = pick(HELLO_SUB);
+    el.classList.remove("play"); void el.offsetWidth; el.classList.add("play"); // replay the entrance
   }
 
   /* The board covers the page area exactly. */
@@ -3379,6 +3455,7 @@
     });
     tc.addEventListener("TabSelect", () => {
       const t = gBrowser.selectedTab;
+      updateLoading();
       if (little) return render();
       // Another tab chosen while a card is shown: the card goes away. Deferred: Firefox also moves the
       // selection away from a tab it is about to close, and then the card is already being torn down.
@@ -3488,7 +3565,7 @@
       saveWs, deleteWs, selectTab, switchWs, closePalette, query, choose, todayTabs, tabWs, tabItemId, tabForItem,
       archive, clearToday, runCommand, fixup, applyVisibility, cycleStep, endCycle, stepSidebar, createProfile, fixContainerColors, backToStart, tabId,
       deleteProfile, inView, profOf, copyUrl, get palSel() { return palSel; }, stepWs,
-      favicon, plainIcon, cachedIcon,
+      favicon, plainIcon, cachedIcon, updateLoading, HELLO, get loadEl() { return loadEl; },
       get sidebarVisible() { return sidebarVisible; },
       openBoard, closeBoard, boardUndo, boardCopy, boardPaste, boardDuplicate, readClipboard, addNote, addText, addLink, openLink, board, renewNote, snoozeNote, setTool, deleteBoardItem, select, expiredCount,
       get boardOpen() { return boardOpen; }, get selectedId() { return selectedId; },

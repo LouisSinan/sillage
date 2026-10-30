@@ -239,6 +239,9 @@
 .sl-letter { display: grid; place-items: center; font-size: 10px; font-weight: 700; color: white; background: hsl(var(--lh) 55% 50%); }
 .sl-spin { border: 2px solid var(--sl-line); border-top-color: var(--sl-accent); border-radius: 50%; animation: sl-spin .7s linear infinite; width: 12px; height: 12px; margin: 2px; }
 @keyframes sl-spin { to { transform: rotate(360deg); } }
+#sl-loading { position: fixed; left: var(--ld-x); top: var(--ld-y); width: var(--ld-w); height: var(--ld-h); z-index: 120; display: grid; place-items: center; pointer-events: none; animation: sl-fade .2s; }
+#sl-loading[hidden] { display: none; }
+#sl-loading .sl-spin { width: 22px; height: 22px; margin: 0; border-width: 3px; padding: 0; box-sizing: content-box; background: var(--sl-bg, hsl(var(--sl-h) 20% 96%)); box-shadow: 0 0 0 8px var(--sl-bg, hsl(var(--sl-h) 20% 96%)); }
 
 .sl-folder-head { color: var(--sl-fg-dim); }
 .sl-chev { width: 12px; height: 12px; transition: transform .2s var(--sl-ease); }
@@ -552,6 +555,30 @@
 #sl-board-wrap.blank.empty #sl-board-view::after {
   content: "Nothing open here. Press Ctrl+T to go somewhere, or double-click to add a sticky note.";
 }
+#sl-board-wrap.hello #sl-board-view::after { content: none; }
+.sl-hello { display: none; position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; color: #ededed;
+  background: radial-gradient(ellipse at 70% 30%, #1a1226 0%, #0a0810 55%, #000 100%); font-family: system-ui, "Geist", sans-serif; }
+#sl-board-wrap.hello .sl-hello { display: block; }
+#sl-board-wrap.hello #sl-board-view { background-image: none; }
+.sl-hello-sky { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sl-hello-stars circle { fill: #fff; opacity: .55; }
+.sl-hello-comet { opacity: 0; }
+.sl-hello-text { position: absolute; left: 50%; top: 56%; translate: -50% 0; width: min(560px, 86%); text-align: center; }
+.sl-hello-title { font-size: clamp(30px, 5vw, 52px); font-weight: 300; letter-spacing: -.02em; line-height: 1.1; padding-bottom: .08em;
+  background: linear-gradient(180deg, #fff, #9b9b9b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sl-hello-sub { margin-top: 12px; font-size: 15px; color: #b4b4b4; }
+.sl-hello-hint { margin-top: 28px; display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: #8a8a8a; }
+.sl-hello-hint kbd { padding: 2px 8px; border: 1px solid rgb(255 255 255 / .16); border-radius: 6px; background: rgb(255 255 255 / .08); font: 12px ui-monospace, monospace; color: #d0d0d0; }
+/* Finite animations only (no repaint loop): the comet crosses the sky once, the words rise in, the stars twinkle once. */
+.sl-hello.play .sl-hello-comet { animation: sl-comet 2.4s cubic-bezier(.22, .8, .3, 1) both; }
+.sl-hello.play .sl-hello-title { animation: sl-hello-rise .9s .35s cubic-bezier(.32, .72, 0, 1) both; }
+.sl-hello.play .sl-hello-sub { animation: sl-hello-rise .9s .6s cubic-bezier(.32, .72, 0, 1) both; }
+.sl-hello.play .sl-hello-hint { animation: sl-hello-rise .9s .9s cubic-bezier(.32, .72, 0, 1) both; }
+.sl-hello.play .sl-hello-stars circle { animation: sl-twinkle 2.2s ease-in-out both; }
+@keyframes sl-comet { from { opacity: 0; transform: translate(260px, -90px); } 25% { opacity: 1; } to { opacity: 1; transform: none; } }
+@keyframes sl-hello-rise { from { opacity: 0; transform: translateY(12px); } }
+@keyframes sl-twinkle { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sl-hello * { animation: none !important; } .sl-hello-comet { opacity: 1; } }
 #sl-board-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 
 .sl-note {

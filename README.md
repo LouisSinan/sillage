@@ -59,6 +59,8 @@ Firefox.
   follow you across devices, end-to-end encrypted like the rest of Firefox Sync.
 - **Light on memory**: after a restart, tabs load when you open them; once loaded they stay alive. Hovering a
   sidebar row prepares its tab so switching is instant.
+- **Loading spinner** in the page area while a tab loads or reloads, so a slow page never looks like a bug.
+- **A calm empty screen**: with nothing open, a night sky and a comet greet you with a few kind words that change with the time of day.
 - **Pinned tabs** that keep their home URL; closing a pinned tab unloads it instead of removing it.
 - **Auto-archiving** of today tabs that have not been viewed for a while (12 hours to 7 days, or never).
 - **Drag and drop** to reorder, pin, file into folders or move tabs to another workspace.

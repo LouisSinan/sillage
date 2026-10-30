@@ -348,6 +348,11 @@
     const wsEmpty = S.activeWs;
     await wait(200);
     ok(S.isBlank(sel()) && S.boardOpen, "empty workspace shows the board, not a blank page");
+    {
+      const hello = document.querySelector("#sl-board-wrap.hello .sl-hello");
+      const words = hello?.querySelector(".sl-hello-title").textContent;
+      ok(hello && Object.values(S.HELLO).some(a => a.includes(words)) && hello.querySelector(".sl-hello-sub").textContent && hello.querySelector(".sl-hello-comet"), "the empty screen greets with a kind word and a comet");
+    }
     S.renderNow();
     ok(![...document.querySelectorAll("#sl-today .sl-tab")].some(r => r.title.includes("about:blank")), "the blank placeholder tab is not listed");
     S.closeBoard();
@@ -940,6 +945,21 @@
       gBrowser.removeTab(S.glance().tab, { animate: false });
       ok(!S.glance() && sel() === page && !document.documentElement.hasAttribute("sl-glance"), "a card closing itself returns to the page");
       ok(await until(() => !gBrowser.splitViews?.length, 2000) && !document.getElementById(page.linkedPanel).classList.contains("split-view-panel"), "no split view left behind");
+    }
+
+    // --- loading spinner
+    {
+      const page = S.newTab("https://example.org/?spin");
+      await until(() => sel() === page);
+      // Firefox clears the real attribute when the load ends: fake it for this tab.
+      let busy = true;
+      const realHas = page.hasAttribute.bind(page);
+      page.hasAttribute = a => (a === "busy" ? busy : realHas(a));
+      S.updateLoading();
+      ok(await until(() => S.loadEl && !S.loadEl.hidden, 1500), "a loading page shows the spinner");
+      busy = false; S.updateLoading();
+      ok(S.loadEl.hidden, "the spinner goes away when loading ends");
+      gBrowser.removeTab(page, { animate: false });
     }
 
     // --- interface screenshot
