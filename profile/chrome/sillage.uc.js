@@ -14,6 +14,7 @@
   const HIST_PATH = PathUtils.join(PathUtils.profileDir, "sillage-history.json");
   const ICONS_PATH = PathUtils.join(PathUtils.profileDir, "sillage-icons.json");
   const IS_MAC = AppConstants.platform === "macosx";
+  const IS_WIN = AppConstants.platform === "win";
   const accel = e => (IS_MAC ? e.metaKey : e.ctrlKey);
   const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
   // Firefox Sync engine (lives as long as the application, unlike this window).
@@ -3298,10 +3299,10 @@
     main.parentNode.insertBefore(main, main.nextSibling);
   }
 
-  /* ---------- updates (macOS: the bundled Firefox does not self-update) ---------- */
+  /* ---------- updates (macOS, Windows: the bundled Firefox does not self-update) ---------- */
 
   async function checkFirefoxUpdate() {
-    if (!IS_MAC || shared.updateChecked) return;
+    if (!(IS_MAC || IS_WIN) || shared.updateChecked) return;
     shared.updateChecked = true;
     const last = D.settings.lastUpdateCheck || 0;
     if (Date.now() - last < 86400e3) return;
@@ -3311,7 +3312,7 @@
       save();
       const latest = j.LATEST_FIREFOX_VERSION;
       if (latest && Services.vc.compare(latest, Services.appinfo.version) > 0) {
-        toast(`Firefox ${latest} is available: run “make update” in the Sillage directory`, 12000);
+        toast(`Firefox ${latest} is available: run “${IS_WIN ? "sillage update" : "make update"}” in the Sillage directory`, 12000);
       }
     } catch (e) { log("update check " + e); }
   }

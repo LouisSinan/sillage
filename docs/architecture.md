@@ -14,10 +14,10 @@ Firefox start
 ```
 
 - `firefox/` is copied into the Firefox installation by `scripts/install.sh` (`install_loader` in
-  `scripts/common.sh`). A Firefox update can remove these files: `tests/run.sh` and, on Linux, `bin/sillage`
-  copy them again when they are out of date; on macOS, Firefox lives inside the app and is only updated by
+  `scripts/common.sh`; `common.ps1` on Windows). A Firefox update can remove these files: `tests/run.sh` and, on
+  Linux, `bin/sillage` (Windows: `sillage launch`) copy them again when they are out of date; on macOS and Windows, Firefox lives inside the app and is only updated by
   `make update`.
-- `profile/chrome/` is **symlinked** into the profile, so editing the repository and restarting Sillage is
+- `profile/chrome/` is **symlinked** (a junction on Windows) into the profile, so editing the repository and restarting Sillage is
   enough. `chrome.manifest` maps that directory to `chrome://sillage/content/`, because privileged modules must
   load from a chrome URL.
 - `profile/user.js` is copied into the profile and applied at every start.
@@ -32,7 +32,7 @@ Firefox start
 | `profile/chrome/sillage.css` | Styles, loaded as an author sheet by the script |
 | `profile/chrome/sillage-sync.sys.mjs` | Firefox Sync engine (an ES module: one instance for the application) |
 | `profile/user.js` | Preferences |
-| `scripts/` | `install`, `launch`, `default`, `uninstall`; `common.sh` + `platform/<linux|macos>.sh` |
+| `scripts/` | `install`, `launch`, `default`, `uninstall`; `common.sh` + `platform/<linux|macos>.sh`; Windows: the same as `.ps1` with `common.ps1` + `platform/windows.ps1`, dispatched by `sillage.cmd` |
 | `bin/sillage` | Linux launcher (separate `WM_CLASS`, the Sillage profile) |
 | `tests/run.sh`, `tests/suite.js` | Headless test runner and suite |
 

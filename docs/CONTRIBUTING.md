@@ -5,7 +5,7 @@ Bug reports, fixes and focused features are welcome.
 
 ## Setup
 
-Requirements: Linux (x86_64) or macOS, `bash`, `curl`, `make`.
+Requirements: Linux (x86_64) or macOS, `bash`, `curl`, `make`; or Windows 10/11 with PowerShell 5.1 (no `make`: use `sillage.cmd`).
 
 ```sh
 git clone https://github.com/LouisSinan/sillage.git
@@ -39,7 +39,7 @@ Start with [architecture](architecture.md), then [features](features.md) for the
   Firefox instance per profile.
 - Sillage makes no network requests of its own beyond those listed in the README's *Data* section. A new one
   needs a good reason and a README update.
-- Linux and macOS must both keep working. Platform specifics go in `scripts/platform/` and `IS_MAC` branches.
+- Linux, macOS and Windows must all keep working. Platform specifics go in `scripts/platform/` and `IS_MAC` / `IS_WIN` branches. The Windows scripts (`scripts/*.ps1`, `tests/run.ps1`) mirror the bash ones: change both.
 
 **Code**
 - Plain JavaScript and CSS, no dependencies, no build step.

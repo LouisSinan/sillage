@@ -69,8 +69,8 @@ Firefox.
 
 ## Requirements
 
-- Linux (x86_64) or macOS
-- `bash`, `curl`, `make`
+- Linux (x86_64), macOS or Windows 10/11 (x64)
+- Linux and macOS: `bash`, `curl`, `make`. Windows: PowerShell 5.1 (included with Windows)
 - About 350 MB of disk space for the Firefox copy
 
 ## Installation
@@ -81,6 +81,11 @@ cd sillage
 make install   # downloads Firefox and installs the Sillage app (no root needed)
 make launch    # or start Sillage from your app launcher, Spotlight or Launchpad
 ```
+
+On Windows there is no `make`: run `sillage.cmd` (double-click it, or `sillage install` from a terminal). It installs
+for the current user, without administrator rights. An existing Firefox is reused (copied, not downloaded);
+otherwise Firefox is downloaded. Sillage then appears in the Start Menu and under Settings → Apps → Default apps.
+The commands are the same: `sillage launch`, `default`, `update`, `test`, `uninstall`.
 
 | Command | Description |
 |---|---|
@@ -94,11 +99,11 @@ make launch    # or start Sillage from your app launcher, Spotlight or Launchpad
 Firefox is downloaded in US English. Set `SILLAGE_LOCALE` to use another language, for example
 `SILLAGE_LOCALE=de make install`.
 
-| | Linux | macOS |
-|---|---|---|
-| App | `~/.local/share/applications/sillage.desktop` | `~/Applications/Sillage.app` |
-| Firefox | `~/.local/opt/sillage-firefox` (updates itself) | inside the app; `make update` (Sillage shows a notice) |
-| Profile | `~/.local/share/sillage/profile` | `~/Library/Application Support/Sillage/Profile` |
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| App | `~/.local/share/applications/sillage.desktop` | `~/Applications/Sillage.app` | Start Menu shortcut `Sillage` |
+| Firefox | `~/.local/opt/sillage-firefox` (updates itself) | inside the app; `make update` (Sillage shows a notice) | `%LOCALAPPDATA%\Sillage\firefox`; `sillage update` (Sillage shows a notice) |
+| Profile | `~/.local/share/sillage/profile` | `~/Library/Application Support/Sillage/Profile` | `%APPDATA%\Sillage\Profile` |
 
 ## Keyboard shortcuts
 
@@ -140,8 +145,9 @@ Makefile          install | launch | default | update | test | uninstall
 firefox/          copied into Firefox: autoconfig loader and preference, enterprise policies
 profile/chrome/   the interface (sillage.uc.js, sillage.css), linked into the profile
 profile/user.js   profile preferences
-scripts/          one script per command; common.sh + platform/<linux|macos>.sh
+scripts/          one script per command; common.sh + platform/<linux|macos>.sh (Windows: *.ps1)
 bin/sillage       Linux launcher
+sillage.cmd       Windows entry point
 tests/            test suite (headless Firefox, throwaway profile)
 docs/             technical documentation
 assets/           icon
@@ -170,7 +176,7 @@ collection that regular Firefox clients ignore.
 Workspaces, pinned items, favorites and boards are stored in `sillage.json`, palette history in
 `sillage-history.json` and the last icon of each site in `sillage-icons.json`, all in the profile directory. Sillage makes no network
 requests of its own beyond search suggestions from your default search engine (when enabled in Firefox),
-Firefox Sync when you are signed in, and, on macOS, a daily check for new Firefox releases.
+Firefox Sync when you are signed in, and, on macOS and Windows, a daily check for new Firefox releases.
 
 ## Contributing
 

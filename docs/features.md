@@ -138,7 +138,7 @@ Ctrl+arrows are left to a text field (word navigation) only when the user has cl
 loading (search engines, chat apps) would otherwise swallow the shortcut. Chrome fields (address bar,
 sidebar inputs) always keep it.
 
-## macOS updates
+## macOS and Windows updates
 
-Firefox inside `Sillage.app` cannot update itself. `checkFirefoxUpdate()` compares the version once a day with
-Mozilla's product details and shows a notice suggesting `make update`.
+Firefox inside `Sillage.app` (macOS) or `%LOCALAPPDATA%\Sillage\firefox` (Windows) cannot update itself. `checkFirefoxUpdate()` compares the version once a day with
+Mozilla's product details and shows a notice suggesting `make update` (`sillage update` on Windows).
